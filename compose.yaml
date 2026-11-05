@@ -1,0 +1,23 @@
+name: ras-log-analyser
+services:
+  analyser:
+    build: .
+    image: ras-log-analyser:local
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:${RAS_ANALYSER_PORT:-8767}:8766"
+    volumes:
+      - analyser-data:/data
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  analyser-data:
+    name: ras-log-analyser-data

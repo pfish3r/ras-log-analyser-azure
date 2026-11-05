@@ -15,3 +15,6 @@ dist/
 .env
 server.env
 appsettings.local.json
+backups/
+legacy-library.sqlite3
+restore.tar.gz

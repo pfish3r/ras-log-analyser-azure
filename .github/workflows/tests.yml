@@ -23,3 +23,18 @@ jobs:
         run: for script in linux/*.sh; do bash -n "$script" || exit; done
       - name: Build clean deployment package
         run: python build_package.py dist/ras-log-analyser-upload-only.tar.gz
+
+  container:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and start the Debian-based container
+        run: docker compose up -d --build --wait --wait-timeout 120
+      - name: Test uploads and persistence across container replacement
+        run: python3 container_smoke.py
+      - name: Show container logs
+        if: always()
+        run: docker compose logs --no-color
+      - name: Remove disposable CI containers and test volume
+        if: always()
+        run: docker compose down --volumes

@@ -10,6 +10,31 @@ The upload analyser is the main screen. Collector/watcher code, polling, live en
 
 Google AI opens Google with the selected message as its query; use it only when that message is appropriate to send externally. The app has no user authentication. Anyone who can access it can upload logs, edit parsing settings and edit the shared issue library. The supplied deployment binds only to 127.0.0.1 and is intended for an SSH tunnel. It does not open Azure NSG or Ubuntu firewall ports.
 
+## Docker and Compose on Debian
+
+See [CONTAINERS.md](CONTAINERS.md) for Docker installation prerequisites, deployment, updates, backup/restore and importing an existing issue library. The image uses Debian Bookworm with Python 3.12 and runs as an unprivileged user.
+
+With Docker Engine and the Compose plugin installed:
+
+```bash
+git clone https://github.com/pfish3r/ras-log-analyser.git
+cd ras-log-analyser
+sudo docker compose up -d --build --wait
+```
+
+Compose binds to **127.0.0.1:8767** on the host; the systemd installation remains on 8766. The named volume **ras-log-analyser-data** retains the issue library and parsing settings across container rebuilds, replacement and normal `docker compose down`. Do not use `down --volumes` on your deployment; that deletes the volume.
+
+To update:
+
+```bash
+sudo docker compose exec -T analyser python container_backup.py
+git pull --ff-only origin main &&
+sudo docker compose build --pull &&
+sudo docker compose up -d --wait
+```
+
+Run the backup successfully before updating. The image is built locally from GitHub source; no registry login or prebuilt image is required. Keep the service private using an SSH tunnel; it has no user authentication.
+
 ## Windows development
 
 Python 3.11+; double-click start.cmd or run `python app.py`. Open http://127.0.0.1:8766 directly in your browser. State defaults to data/issues.sqlite3 and data/analyser.log. For Waitress, install requirements-server.txt into your own virtual environment and run `python production.py --config appsettings.json`. Do not point the new deployment at the original app's data/configuration.

@@ -1,0 +1,17 @@
+# Only application source required by the image enters the build context.
+**
+!Dockerfile
+!.dockerignore
+!requirements-server.txt
+!app.py
+!production.py
+!bundle.py
+!import_issues.py
+!container_entrypoint.py
+!container_backup.py
+!appsettings.json
+!static/
+!static/index.html
+!static/app.js
+!static/style.css
+!static/admin.css
