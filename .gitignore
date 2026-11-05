@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.test-deps/
+data/
+dist/
+*.sqlite*
+*.db
+*.bak
+*.log
+*.zip
+*.tar.gz
+*.sha256
+.env
+server.env
+appsettings.local.json
