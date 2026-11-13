@@ -104,3 +104,11 @@
 #bundle-top-logs button { display: flex; flex-wrap: wrap; align-items: baseline; gap: .2rem 1rem; width: 100%; text-align: start; }
 #bundle-top-logs span { margin-inline-start: auto; color: var(--red); }
 #bundle-top-logs small { flex-basis: 100%; overflow-wrap: anywhere; color: var(--muted); }
+
+.usage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin: 18px 18px 0;
+}
