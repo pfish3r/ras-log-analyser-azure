@@ -31,7 +31,7 @@ class BundleStore:
             records, servers = [], {}
             budget = [0, 0]
             skipped = [0]
-            def save(source, size, display):
+            def count_entry():
                 budget[1] += 1
                 if budget[1] > MAX_INSPECTED_ENTRIES:
                     raise ValueError(
@@ -39,6 +39,8 @@ class BundleStore:
                         f'{MAX_INSPECTED_ENTRIES:,} across the upload and its nested archives. '
                         'Upload one server archive or a smaller selection of logs.'
                     )
+            def save(source, size, display):
+                count_entry()
                 if size > MAX_ENTRY_BYTES:
                     # Error text is also used by the local HTTP server as a status reason.
                     label = ascii(display[-240:])[1:-1]
@@ -74,6 +76,12 @@ class BundleStore:
                     with zipfile.ZipFile(path) as archive:
                         for member in archive.infolist():
                             if member.is_dir():
+                                continue
+                            # ZIP metadata lets us skip the RAS performance capture
+                            # without expanding it or losing the neighbouring logs.
+                            if member.filename.replace('\\', '/').rsplit('/', 1)[-1].casefold() == 'perf.dat':
+                                count_entry()
+                                skipped[0] += 1
                                 continue
                             with archive.open(member) as source:
                                 child = save(source, member.file_size, display + ' / ' + member.filename)

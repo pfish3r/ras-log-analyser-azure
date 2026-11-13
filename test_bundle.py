@@ -35,6 +35,24 @@ class BundleTests(unittest.TestCase):
                 self.store.upload(io.BytesIO(raw), len(raw))
         self.assertFalse(self.store.sessions)
 
+    def test_oversized_nested_perf_capture_is_counted_but_never_opened(self):
+        from unittest.mock import patch
+        inner = make_zip([('data/PERF.DAT', b'x' * 20000), ('controller.log', '[E] retained')])
+        outer = make_zip([('RASAttachment.zip.log', inner)])
+        original_open = zipfile.ZipFile.open
+        def guarded_open(archive, member, *args, **kwargs):
+            self.assertFalse(member.filename.lower().endswith('perf.dat'))
+            return original_open(archive, member, *args, **kwargs)
+        with patch.object(zipfile.ZipFile, 'open', guarded_open), patch('bundle.MAX_ENTRY_BYTES', 4096):
+            result = self.store.upload(io.BytesIO(outer), len(outer))
+            self.assertEqual(result['skipped'], 1)
+            log, = result['servers'][0]['logs']
+            data = self.store.analyze({'token': result['token'], 'log_id': log['id']}, self.collector)
+            self.assertEqual(data['stats']['errors'], 1)
+            with patch('bundle.MAX_INSPECTED_ENTRIES', 2):
+                with self.assertRaisesRegex(ValueError, 'reached entry 3'):
+                    self.store.upload(io.BytesIO(outer), len(outer))
+
     def tearDown(self):
         for token in list(self.store.sessions):
             self.store.clear(token)
