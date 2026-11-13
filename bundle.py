@@ -10,6 +10,10 @@ import threading
 import time
 import zipfile
 
+MAX_INSPECTED_ENTRIES = 20_000
+MAX_ENTRY_BYTES = 512 * 1024**2
+
+
 class BundleStore:
     def __init__(self):
         self.sessions = {}
@@ -27,10 +31,22 @@ class BundleStore:
             records, servers = [], {}
             budget = [0, 0]
             skipped = [0]
-            def save(source, size):
+            def save(source, size, display):
                 budget[1] += 1
-                if budget[1] > 20000 or size > 512 * 1024 * 1024:
-                    raise ValueError('Bundle contains too many entries or an entry larger than 512 MiB')
+                if budget[1] > MAX_INSPECTED_ENTRIES:
+                    raise ValueError(
+                        f'Inspection reached entry {budget[1]:,}. The limit is '
+                        f'{MAX_INSPECTED_ENTRIES:,} across the upload and its nested archives. '
+                        'Upload one server archive or a smaller selection of logs.'
+                    )
+                if size > MAX_ENTRY_BYTES:
+                    # Error text is also used by the local HTTP server as a status reason.
+                    label = ascii(display[-240:])[1:-1]
+                    raise ValueError(
+                        f'Entry "{label}" is {size:,} bytes before compression. '
+                        f'The per-entry limit is {MAX_ENTRY_BYTES:,} bytes. '
+                        'Choose a smaller server archive or split the affected log.'
+                    )
                 target = root / secrets.token_hex(16)
                 with target.open('wb') as output:
                     remaining = size
@@ -60,7 +76,7 @@ class BundleStore:
                             if member.is_dir():
                                 continue
                             with archive.open(member) as source:
-                                child = save(source, member.file_size)
+                                child = save(source, member.file_size, display + ' / ' + member.filename)
                             visit(child, display + ' / ' + member.filename, server, depth + 1)
                     path.unlink()
                 elif signature.startswith(b'\x1f\x8b') or display.lower().endswith('.tar'):
@@ -70,7 +86,7 @@ class BundleStore:
                                 skipped[0] += 1
                                 continue
                             with archive.extractfile(member) as source:
-                                child = save(source, member.size)
+                                child = save(source, member.size, display + ' / ' + member.name)
                             visit(child, display + ' / ' + member.name, server, depth + 1)
                     path.unlink()
                 elif display.lower().endswith(('.log', '.txt', '.out')):
@@ -84,7 +100,7 @@ class BundleStore:
                     skipped[0] += 1
                     path.unlink()
             try:
-                uploaded = save(stream, length)
+                uploaded = save(stream, length, "Support bundle")
                 with uploaded.open('rb') as source:
                     magic = source.read(4)
                 if not (magic.startswith(b'PK') or magic.startswith(b'\x1f\x8b')):

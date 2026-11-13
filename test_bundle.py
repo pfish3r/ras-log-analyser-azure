@@ -24,6 +24,17 @@ class BundleTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.collector = Analyser({'Database': 'test.sqlite3'}, self.temp.name)
 
+    def test_entry_limit_and_expanded_size_have_distinct_diagnostics(self):
+        from unittest.mock import patch
+        raw = make_zip([('big.log', b'x' * 4096)])
+        with patch('bundle.MAX_ENTRY_BYTES', 2048):
+            with self.assertRaisesRegex(ValueError, r'big\.log.*4,096 bytes'):
+                self.store.upload(io.BytesIO(raw), len(raw))
+        with patch('bundle.MAX_INSPECTED_ENTRIES', 1):
+            with self.assertRaisesRegex(ValueError, r'reached entry 2'):
+                self.store.upload(io.BytesIO(raw), len(raw))
+        self.assertFalse(self.store.sessions)
+
     def tearDown(self):
         for token in list(self.store.sessions):
             self.store.clear(token)
