@@ -45,9 +45,10 @@ def application_for(analyser):
                         raise ValueError("Analysis request is empty or too large")
                     payload = read_analysis_body(environ["wsgi.input"], length, mime_type)
                     content, mime = json.dumps(analyser.analyze_logs(payload)).encode(), "application/json"
-            elif method == "GET" and path in ("/", "/app.js", "/style.css", "/admin.css"):
+            elif method == "GET" and path in ("/", "/app.js", "/style.css", "/admin.css", "/parallels-logo.png"):
                 name, mime = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
-                              "/style.css": ("style.css", "text/css"), "/admin.css": ("admin.css", "text/css")}[path]
+                              "/style.css": ("style.css", "text/css"), "/admin.css": ("admin.css", "text/css"),
+                              "/parallels-logo.png": ("parallels-logo.png", "image/png")}[path]
                 content = (ROOT / "static" / name).read_bytes()
                 if name == "index.html" and b"__APP_VERSION__" in content:
                     content = stamp(content, ROOT)

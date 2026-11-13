@@ -438,12 +438,12 @@ def handler_for(analyser):
                     content, mime = json.dumps(analyser.store.known_issues()).encode(), "application/json"
                 elif parts.path == "/api/settings":
                     content, mime = json.dumps(analyser.admin_settings()).encode(), "application/json"
-                elif parts.path in ("/", "/app.js", "/style.css", "/admin.css"):
-                    name = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css", "/admin.css": "admin.css"}[parts.path]
+                elif parts.path in ("/", "/app.js", "/style.css", "/admin.css", "/parallels-logo.png"):
+                    name = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css", "/admin.css": "admin.css", "/parallels-logo.png": "parallels-logo.png"}[parts.path]
                     content = (ROOT / "static" / name).read_bytes()
                     if name == "index.html" and b"__APP_VERSION__" in content:
                         content = stamp(content, ROOT)
-                    mime = {"index.html": "text/html", "app.js": "text/javascript", "style.css": "text/css", "admin.css": "text/css"}[name]
+                    mime = {"index.html": "text/html", "app.js": "text/javascript", "style.css": "text/css", "admin.css": "text/css", "parallels-logo.png": "image/png"}[name]
                 else:
                     self.send_error(404)
                     return

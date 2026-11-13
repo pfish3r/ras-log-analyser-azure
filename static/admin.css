@@ -69,3 +69,11 @@
   header { height: auto; min-height: 78px; gap: 12px; flex-wrap: wrap; padding-block: 14px; }
   .header-actions { flex-wrap: wrap; gap: 9px 12px; }
 }
+
+.parallels-logo { display: none; }
+[data-theme="parallels"] .brand .mark { display: none; }
+[data-theme="parallels"] .parallels-logo { display: block; width: clamp(80px, 12vw, 120px); height: auto; }
+@media (max-width: 700px) {
+  [data-theme="parallels"] .brand { flex-wrap: wrap; }
+  [data-theme="parallels"] .brand .app-version { display: inline; }
+}

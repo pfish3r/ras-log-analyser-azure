@@ -12,6 +12,7 @@
 !container_backup.py
 !appsettings.json
 !static/
+!static/parallels-logo.png
 !static/index.html
 !static/app.js
 !static/style.css
