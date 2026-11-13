@@ -1,5 +1,9 @@
 # Feature changelog
 
+## v1.2.2
+
+- Uploaded log results now show five summary cards for events, successful and failed logins, errors, and distinct users and hosts in the selected date range.
+
 ## v1.2.1
 
 - The bundle inventory subtly highlights controller, vdiagent, gateway and tsagent filenames in all three themes.

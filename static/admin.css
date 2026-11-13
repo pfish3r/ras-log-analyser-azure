@@ -86,3 +86,12 @@
   background: color-mix(in srgb, var(--green) 8%, transparent);
   font-weight: 600;
 }
+
+.upload-summary { margin: 18px 18px 0; }
+.upload-summary article { min-width: 0; }
+.upload-summary span { color: var(--muted); }
+.upload-summary strong { overflow-wrap: anywhere; }
+#summary-logins { color: #71e2b2; }
+#summary-failed, #analysis-errors { color: var(--red); }
+:root:is([data-theme="light"], [data-theme="parallels"]) #summary-logins { color: #09664e; }
+@media (max-width: 420px) { .upload-summary { grid-template-columns: 1fr; } }

@@ -90,6 +90,9 @@ function renderAnalysisItems(){
 }
 function renderAnalysis(data){
   analysisData=data;$('analysis-results').hidden=false;
+  $('summary-logins').textContent=data.stats.logins.toLocaleString();
+  $('summary-failed').textContent=data.stats.failed.toLocaleString();
+  $('summary-entities').textContent=`${data.stats.users.toLocaleString()} / ${data.stats.hosts.toLocaleString()}`;
   $('analysis-total').textContent=data.stats.total.toLocaleString();$('analysis-errors').textContent=data.stats.errors.toLocaleString();
   $('analysis-warnings').textContent=data.stats.warnings.toLocaleString();$('analysis-information').textContent=data.stats.information.toLocaleString();
   selectedAnalysisIssue=null;
