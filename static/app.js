@@ -2,7 +2,7 @@ function initializeThemePicker() {
   const picker = document.getElementById('theme-picker');
   const key = 'ras-log-analyser.theme';
   const themes = new Set(['dark', 'light', 'parallels']);
-  let choice = 'dark';
+  let choice = 'parallels';
   try {
     const saved = localStorage.getItem(key);
     if (themes.has(saved)) choice = saved;
