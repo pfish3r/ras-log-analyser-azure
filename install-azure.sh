@@ -77,4 +77,8 @@ docker compose build --pull
 docker compose up -d --wait --wait-timeout 180
 docker compose ps
 echo "Installed $(git rev-parse --short HEAD) in $checkout"
-echo "Published address: $(docker compose port analyser 8766)"
+if [[ -f compose.override.yaml ]] && docker compose ps --services --status running | grep -qx https; then
+  docker compose port https 443
+else
+  docker compose port analyser 8766
+fi

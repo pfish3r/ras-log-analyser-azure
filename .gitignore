@@ -18,3 +18,7 @@ appsettings.local.json
 backups/
 legacy-library.sqlite3
 restore.tar.gz
+
+compose.override.yaml
+https-router.yml*
+https-override.*

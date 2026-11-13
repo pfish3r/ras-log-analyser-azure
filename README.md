@@ -27,3 +27,11 @@ sudo docker compose exec -T analyser python container_backup.py
 ```
 
 Docker prerequisite references: [Ubuntu](https://docs.docker.com/engine/install/ubuntu/) and [Debian](https://docs.docker.com/engine/install/debian/).
+
+## HTTPS on port 443 with GoDaddy DNS verification
+
+After installing the analyser, run `sudo bash /opt/ras-log-analyser-azure/enable-https.sh`. Enter the DNS hostname, then a production GoDaddy classic API key and secret with DNS write access to the authoritative zone, then an ACME contact email. Enter credentials directly at the VM prompt. The script stores credentials and ACME account state under /etc/ras-log-analyser-azure/tls with root-only access. To rotate credentials replace the key and secret files, then rerun the script.
+
+Set the hostname's A record in your client's DNS to the VM address reachable from your LAN/VPN. If an AAAA record exists it must also reach the service. Allow TCP 443 from trusted source networks in the Azure NSG. The analyser has no login. DNS-01 uses a public challenge TXT record and works with a private application IP. Port 80 is unnecessary.
+
+Traefik obtains and renews the certificate through GoDaddy. The script verifies the trusted certificate and application on the VM. Compose publishes HTTPS on 443 and removes the direct HTTP port. Use recent Docker Compose with support for the !reset tag. The generated Compose override applies on subsequent updates. Back up the TLS state privately alongside your issue-library backups.
