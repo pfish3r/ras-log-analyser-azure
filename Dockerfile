@@ -7,7 +7,7 @@ RUN pip install --no-cache-dir -r requirements-server.txt \
     && useradd --uid 10001 --gid analyser --no-create-home --shell /usr/sbin/nologin analyser \
     && mkdir -p /data \
     && chown analyser:analyser /data
-COPY app.py production.py bundle.py import_issues.py container_entrypoint.py container_backup.py appsettings.json ./
+COPY log_index.py parser-defaults.json app.py production.py bundle.py import_issues.py container_entrypoint.py container_backup.py appsettings.json ./
 COPY static/ ./static/
 COPY VERSION version_stamp.py ./
 RUN python version_stamp.py /app /app/static/index.html

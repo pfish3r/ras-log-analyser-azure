@@ -193,6 +193,11 @@ class Analyser:
         path = Path(value).expanduser()
         return path if path.is_absolute() else self.base / path
 
+    def parser_defaults(self):
+        defaults = json.loads((ROOT / "parser-defaults.json").read_text(encoding="utf-8"))
+        return {"ErrorSearchStrings": defaults["ErrorSearchStrings"],
+                "ActivityRules": [rule for rule in defaults["ParseRules"] if rule["Kind"] in ACTIVITY_KINDS]}
+
     def admin_settings(self):
         with self.config_lock:
             return {"ErrorSearchStrings": list(self.config.get("ErrorSearchStrings", ["error", "exception", "fatal"])),
@@ -264,36 +269,16 @@ class Analyser:
             self.parser = parser
         return self.admin_settings()
 
-    def analyze_logs(self, payload):
+    def build_index(self, payload, path):
+        from log_index import LogIndex
         if not isinstance(payload, dict) or not isinstance(payload.get("Files"), list):
             raise ValueError("Choose one or more log files")
-        since = until = None
-        if payload.get("Since") is not None:
-            try:
-                since = datetime.fromisoformat(payload["Since"])
-                until = datetime.fromisoformat(payload["Until"])
-                if since.tzinfo or until.tzinfo or since > until:
-                    raise ValueError()
-            except (ValueError, TypeError, KeyError):
-                raise ValueError("Invalid analysis date range") from None
-        severity_filter = payload.get("Severity", "")
-        if severity_filter not in ("", "all", "error", "warning", "info"):
-            raise ValueError("Invalid severity filter")
-        query = str(payload.get("Query", "")).casefold().strip()
-        selected_file = str(payload.get("FileId", ""))
-        try:
-            offset = max(0, int(payload.get("Offset", 0)))
-            page_size = min(ANALYSIS_MAX_RESULTS, max(1, int(payload.get("PageSize", ANALYSIS_MAX_RESULTS))))
-        except (ValueError, TypeError):
-            raise ValueError("Invalid page") from None
-        matched = 0
-        unknown_timestamps = 0
         raw_files = payload["Files"]
         if not 1 <= len(raw_files) <= ANALYSIS_MAX_FILES:
             raise ValueError(f"Choose between 1 and {ANALYSIS_MAX_FILES} log files")
         with self.config_lock:
             event_parser = self.parser
-        files, total_text, total_lines = [], 0, 0
+        files, total_text = [], 0
         for number, uploaded in enumerate(raw_files, 1):
             if not isinstance(uploaded, dict):
                 raise ValueError(f"Uploaded file {number} is invalid")
@@ -307,11 +292,10 @@ class Analyser:
                 raise ValueError("The decoded log files exceed the 1 GiB analysis limit")
             files.append((name, content))
 
-        stats = {"total": 0, "errors": 0, "warnings": 0, "information": 0,
-                 "logins": 0, "failed": 0, "connections": 0, "logouts": 0,
-                 "users": set(), "hosts": set()}
-        issues, grouped = [], {}
-        file_groups = {str(i): {} for i in range(len(files))}
+        return LogIndex(path, [name for name, _ in files], self.parsed_rows(files, event_parser))
+
+    def parsed_rows(self, files, event_parser):
+        total_lines = 0
         marker_severity = {"e": "error", "w": "warning", "i": "info"}
         for file_index, (name, content) in enumerate(files):
             file_id = str(file_index)
@@ -319,8 +303,6 @@ class Analyser:
             lines = (m.group(0) for m in re.finditer(r"[^\r\n]*(?:\r\n|\r|\n|$)", content) if m.group(0))
             for line_number, original in enumerate(lines, 1):
                 line = original.rstrip("\r\n").lstrip("\ufeff")
-                if not line.strip() and severity_filter != "all":
-                    continue
                 total_lines += 1
                 if total_lines > ANALYSIS_MAX_LINES:
                     raise ValueError(f"The upload exceeds the {ANALYSIS_MAX_LINES:,} line analysis limit")
@@ -347,66 +329,18 @@ class Analyser:
                             sort_time = datetime.fromisoformat(timestamp.replace("Z", "+00:00")).isoformat()
                         except ValueError:
                             pass
-                if since is not None:
-                    if not sort_time:
-                        unknown_timestamps += 1
-                        continue
-                    # RAS timestamps have no timezone: compare their written local time.
-                    written_time = datetime.fromisoformat(sort_time).replace(tzinfo=None)
-                    if not since <= written_time <= until:
-                        continue
-                stats["total"] += 1
-                stats[{"error": "errors", "warning": "warnings", "info": "information"}[severity]] += 1
-                if event["kind"] == "login":
-                    stats["logins"] += 1
-                elif event["kind"] == "login_failed":
-                    stats["failed"] += 1
-                elif event["kind"] == "connection":
-                    stats["connections"] += 1
-                elif event["kind"] == "logout":
-                    stats["logouts"] += 1
-                if event["user"]:
-                    stats["users"].add(event["user"])
-                if event["host"]:
-                    stats["hosts"].add(event["host"])
-                item = {"id": f"{file_id}:{line_number}", "file_id": file_id,
-                        "timestamp": timestamp, "sort_time": sort_time, "severity": severity, "kind": event["kind"], "file": name,
-                        "line": line_number, "user": event["user"], "host": event["host"],
-                        "ip": event["ip"], "raw": line}
-                severity_matches = (severity_filter == "all" or
-                                    (severity == severity_filter if severity_filter else severity in ("error", "warning")))
-                if (severity_matches and (not selected_file or selected_file == file_id) and
-                        (not query or query in f"{line} {event['user']} {event['host']} {name}".casefold())):
-                    if offset <= matched < offset + page_size:
-                        issues.append(item)
-                    matched += 1
-                if severity not in ("error", "warning"):
-                    continue
-                signature = re.sub(r"^\[[EWI][^\]]*\]\s*", "", line, flags=re.I)
-                signature = re.sub(r"^\d{2}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+-\s+", "", signature)
-                signature = signature.strip() or line
-                key = (severity, signature.casefold())
-                for bucket in (grouped, file_groups[file_id]):
-                    if key not in bucket:
-                        bucket[key] = {"severity": severity, "message": signature, "count": 0,
-                                       "latest": item, "files": {}}
-                    group = bucket[key]
-                    group["count"] += 1
-                    group["files"][file_id] = name
-                    # Known log timestamps take precedence; ties use the later scanned line.
-                    if item["sort_time"] >= group["latest"]["sort_time"]:
-                        group["latest"] = item
-        result_stats = {key: (len(value) if isinstance(value, set) else value)
-                        for key, value in stats.items()}
-        def top_groups(bucket):
-            return sorted(bucket.values(), key=lambda item: (-item["count"], item["message"].casefold()))[:25]
-        groups = top_groups(grouped)
-        issue_total = result_stats["errors"] + result_stats["warnings"]
-        return {"stats": result_stats, "files": len(files), "issues": issues, "groups": groups,
-                "matched": matched, "offset": offset, "page_size": page_size,
-                "omitted": max(0, matched - len(issues)), "unknown_timestamps": unknown_timestamps,
-                "file_options": [{"id": str(i), "name": name} for i, (name, _) in enumerate(files)],
-                "file_groups": {key: top_groups(value) for key, value in file_groups.items()}}
+                signature = None
+                if severity in ("error", "warning"):
+                    signature = re.sub(r"^\[[EWI][^\]]*\]\s*", "", line, flags=re.I)
+                    signature = re.sub(r"^\d{2}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+-\s+", "", signature)
+                    signature = signature.strip() or line
+                yield (file_id, line_number, timestamp, sort_time, severity, event["kind"], name,
+                       event["user"], event["host"], event["ip"], line, signature,
+                       signature.casefold() if signature else None, int(not line.strip()),
+                       datetime.fromisoformat(sort_time).replace(tzinfo=None).isoformat(timespec="microseconds") if sort_time else None)
+
+    def analyze_logs(self, payload):
+        return self.bundles.individual(payload, self)
 
 def handler_for(analyser):
     class Handler(BaseHTTPRequestHandler):
@@ -436,6 +370,8 @@ def handler_for(analyser):
             try:
                 if parts.path == "/api/known-issues":
                     content, mime = json.dumps(analyser.store.known_issues()).encode(), "application/json"
+                elif parts.path == "/api/settings/defaults":
+                    content, mime = json.dumps(analyser.parser_defaults()).encode(), "application/json"
                 elif parts.path == "/api/settings":
                     content, mime = json.dumps(analyser.admin_settings()).encode(), "application/json"
                 elif parts.path in ("/", "/app.js", "/style.css", "/admin.css", "/parallels-logo.png"):
@@ -461,7 +397,7 @@ def handler_for(analyser):
                 self.send_error(403)
                 return
             path = urlsplit(self.path).path
-            if path in ("/api/bundle", "/api/bundle/analyze", "/api/bundle/clear"):
+            if path in ("/api/bundle", "/api/bundle/analyze", "/api/bundle/clear", "/api/investigation/query", "/api/investigation/clear"):
                 try:
                     result = analyser.bundles.request(path, self.rfile, int(self.headers.get("Content-Length", "0")),
                         self.headers.get("Content-Type", ""), self.headers.get("X-Logwatch-Analyze"), analyser)

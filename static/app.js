@@ -71,7 +71,7 @@ function renderAnalysisItems(){
     if(item.severity==='error'||item.severity==='warning'){
       const context=el('button','View in full log');context.type='button';
       context.addEventListener('click',async()=>{
-        if(analysisRunning)return;
+        if(analysisRunning || busyChanging)return;
         $('analysis-file').value=item.file_id;$('analysis-severity').value='all';$('analysis-period').value='all';$('analysis-search').value='';
         analysisOffset=Math.floor((item.line-1)/500)*500;
         if(await runAnalysis(analysisSource,true)){
@@ -121,13 +121,20 @@ function analysisWindow(){
 }
 async function runAnalysis(source,preserve=false){
   if(analysisRunning){analysisRefreshPending=true;return false;}
-  analysisRunning=true;for(const id of ['analysis-file','analysis-search','analysis-severity'])$(id).disabled=true;$('analyze-files').disabled=true;$('analysis-period').disabled=true;
+  if(!source || (busyChanging && !source.files))return false;
+  analysisRunning=true;updateControls();for(const id of ['analysis-file','analysis-search','analysis-severity'])$(id).disabled=true;$('analyze-files').disabled=true;$('analysis-period').disabled=true;
   $('analysis-message').textContent='Reading and analysing the selected date range…';
   const previous={file:$('analysis-file').value,search:$('analysis-search').value,severity:$('analysis-severity').value};
   try{
     let payload={...analysisWindow(),Severity:previous.severity,Query:previous.search,FileId:preserve?previous.file:'',Offset:preserve?analysisOffset:0,PageSize:500},url='/api/analyze';
     let body, contentType;
-    if(source.files){
+    if(source.indexed){
+      url='/api/investigation/query';
+      Object.assign(payload,{token:source.token,log_id:source.log_id || ''});
+      body=JSON.stringify(payload);
+      contentType='application/json';
+    }else if(source.files){
+      payload.Indexed=true;
       body=logUploadBody(payload,source);
       contentType=body.type;
     }else{
@@ -138,20 +145,26 @@ async function runAnalysis(source,preserve=false){
     }
     const response=await fetch(url,{method:'POST',headers:{'Content-Type':contentType,'X-Logwatch-Analyze':'1'},body,signal:AbortSignal.timeout(900000)});
     if(!response.ok)throw new Error((await response.text()).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim());
-    const data=await response.json();analysisSource=source;appliedAnalysisPeriod=$('analysis-period').value;renderAnalysis(data);
+    const data=await response.json();
+    analysisSource={indexed:true,token:data.investigation,log_id:source.log_id};
+    trackInvestigation(data.investigation,data.expires_at);appliedAnalysisPeriod=$('analysis-period').value;renderAnalysis(data);
     if(preserve){$('analysis-file').value=previous.file;renderAnalysisGroups();renderAnalysisItems();}
     $('bundle-source').hidden=!data.bundle_source;
     if(data.bundle_source)$('bundle-source').textContent=`Server: ${data.bundle_source.server} · Source: ${data.bundle_source.path}`;
     $('analysis-message').textContent=`${data.stats.total.toLocaleString()} lines in the selected date range from ${data.files} file(s).${data.unknown_timestamps?` ${data.unknown_timestamps.toLocaleString()} lines without a readable timestamp excluded; choose All logs to include them.`:''}`;
     return true;
   }catch(error){$('analysis-message').textContent=`Analysis failed: ${error.message}. Previous results remain displayed.`;return false;}
-  finally{analysisRunning=false;for(const id of ['analysis-file','analysis-search','analysis-severity'])$(id).disabled=false;$('analyze-files').disabled=false;$('analysis-period').disabled=false;if(analysisRefreshPending){analysisRefreshPending=false;runAnalysis(analysisSource,true);}}
+  finally{analysisRunning=false;updateControls();for(const id of ['analysis-file','analysis-search','analysis-severity'])$(id).disabled=false;$('analyze-files').disabled=false;$('analysis-period').disabled=false;if(analysisRefreshPending){analysisRefreshPending=false;runAnalysis(analysisSource,true);}}
 }
 async function analyzeFiles(){
   const files=[...$('analysis-files').files];if(!files.length){$('analysis-message').textContent='Choose at least one log file.';return;}
   if(files.length>10){$('analysis-message').textContent='Choose no more than 10 files.';return;}
   if(files.reduce((total,file)=>total+file.size,0)>1024**3){$('analysis-message').textContent='Choose files totalling no more than 1 GiB.';return;}
-  await runAnalysis({files,encoding:$('analysis-encoding').value});
+  busyChanging=true;updateControls();
+  try{if(await prepareReplacement()){
+    $('bundle-file').value='';
+    await runAnalysis({files,encoding:$('analysis-encoding').value});
+  }}finally{busyChanging=false;updateControls();}
 }
 let appliedAnalysisPeriod='all';
 $('analysis-period').addEventListener('change',async()=>{
@@ -172,6 +185,19 @@ function addActivityRuleEditor(rule={Kind:'login',Pattern:''}){
   const remove=el('button','Remove rule','remove-source');remove.type='button';remove.addEventListener('click',()=>card.remove());
   card.append(kindLabel,patternLabel,remove);$('activity-rule-list').append(card);
 }
+function fillParserForm(settings){
+  $('error-strings').value=settings.ErrorSearchStrings.join('\n');
+  $('activity-rule-list').replaceChildren();
+  for(const rule of settings.ActivityRules)addActivityRuleEditor(rule);
+}
+$('parser-defaults').addEventListener('click',async()=>{
+  try {
+    const response=await fetch('/api/settings/defaults');
+    if(!response.ok)throw new Error('Could not load parser defaults.');
+    fillParserForm(await response.json());
+    $('admin-message').textContent='Defaults loaded. Edit them or select Save and apply for new analyses.';
+  } catch(error){$('admin-message').textContent=error.message;}
+});
 async function openAdmin(){
   $('admin-message').textContent='Loading settings…';
   $('activity-rule-list').replaceChildren();
@@ -180,10 +206,9 @@ async function openAdmin(){
     const response=await fetch('/api/settings',{signal:AbortSignal.timeout(10000)});
     if(!response.ok)throw new Error('Could not load settings.');
     const settings=await response.json();
-    $('error-strings').value=settings.ErrorSearchStrings.join('\n');
-    for(const rule of (settings.ActivityRules||[]))addActivityRuleEditor(rule);
+    fillParserForm(settings);
     $('save-admin').disabled=!settings.CanSave;
-    $('admin-message').textContent=settings.CanSave?'Changes apply immediately after saving.':'Settings are read-only in this instance.';
+    $('admin-message').textContent=settings.CanSave?'Changes apply to newly indexed logs.':'Settings are read-only in this instance.';
   }catch(error){$('admin-message').textContent=error.message;$('save-admin').disabled=true;}
 }
 function closeAdmin(){$('admin-dialog').close();}
@@ -197,8 +222,8 @@ $('analysis-file').addEventListener('change',refreshAnalysisFilter);
 $('analysis-severity').addEventListener('change',refreshAnalysisFilter);
 let analysisSearchTimer;
 $('analysis-search').addEventListener('input',()=>{clearTimeout(analysisSearchTimer);analysisSearchTimer=setTimeout(refreshAnalysisFilter,500);});
-$('analysis-prev').addEventListener('click',()=>{if(analysisRunning)return;analysisOffset=Math.max(0,analysisData.offset-500);runAnalysis(analysisSource,true);});
-$('analysis-next').addEventListener('click',()=>{if(analysisRunning)return;analysisOffset=analysisData.offset+500;runAnalysis(analysisSource,true);});
+$('analysis-prev').addEventListener('click',()=>{if(analysisRunning || busyChanging)return;analysisOffset=Math.max(0,analysisData.offset-500);runAnalysis(analysisSource,true);});
+$('analysis-next').addEventListener('click',()=>{if(analysisRunning || busyChanging)return;analysisOffset=analysisData.offset+500;runAnalysis(analysisSource,true);});
 $('admin-form').addEventListener('submit',async event=>{
   event.preventDefault();
   const ErrorSearchStrings=$('error-strings').value.split('\n').map(value=>value.trim()).filter(Boolean);
@@ -211,7 +236,7 @@ $('admin-form').addEventListener('submit',async event=>{
     const response=await fetch('/api/settings',{method:'POST',headers:{'Content-Type':'application/json','X-Logwatch-Admin':'1'},body:JSON.stringify({ErrorSearchStrings,ActivityRules}),signal:AbortSignal.timeout(10000)});
     if(!response.ok){const detail=await response.text();throw new Error(`Save failed (${response.status}). ${detail.replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim()}`);}
     $('admin-message').textContent='Saved. Parsing settings apply to the next analysis.';
-    setTimeout(()=>{closeAdmin();refreshAnalysisFilter();},700);
+    setTimeout(()=>{closeAdmin();},700);
   }catch(error){$('admin-message').textContent=error.message;$('save-admin').disabled=false;}
 });
 let bundleData=null;
@@ -228,7 +253,7 @@ function renderBundleLogs(){
     const row=el('tr');const name=el('td',log.name);name.append(el('small',log.path));
     const action=el('td');const button=el('button','Analyse log');button.type='button';
     button.addEventListener('click',async()=>{
-      if(analysisRunning)return;
+      if(analysisRunning || busyChanging)return;
       button.disabled=true;
       try{
         if(await runAnalysis({token:bundleData.token,log_id:log.id})){
@@ -241,31 +266,84 @@ function renderBundleLogs(){
   table.append(body);$('bundle-logs').replaceChildren(table);
 }
 $('bundle-server').addEventListener('change',renderBundleLogs);
-$('bundle-clear').addEventListener('click',async()=>{
-  if(!bundleData)return;
-  try{
-    const response=await fetch('/api/bundle/clear',{method:'POST',headers:{'Content-Type':'application/json','X-Logwatch-Analyze':'1'},body:JSON.stringify({token:bundleData.token})});
-    if(!response.ok)throw new Error('Could not clear the bundle');
-    bundleData=null;$('bundle-browser').hidden=true;$('bundle-clear').disabled=true;$('bundle-file').value='';$('bundle-status').textContent='Bundle cleared.';
-  }catch(error){$('bundle-status').textContent=error.message;}
+let investigationToken=null, expiryTimer=null, busyChanging=false;
+function updateControls(){
+  const busy=analysisRunning || busyChanging;
+  $('clear-investigation').disabled=busy || !(investigationToken || $('analysis-files').files.length || $('bundle-file').files.length);
+  $('bundle-upload').disabled=busy;
+  $('analyze-files').disabled=busy;
+}
+function resetView(clearInputs){
+  clearTimeout(expiryTimer);
+  clearTimeout(analysisSearchTimer);
+  try{sessionStorage.removeItem('ras.active-investigation');}catch{}
+  investigationToken=null;bundleData=null;analysisSource=null;analysisData=null;
+  selectedAnalysisIssue=null;analysisOffset=0;analysisRefreshPending=false;
+  $('bundle-browser').hidden=true;$('bundle-logs').replaceChildren();
+  $('bundle-server').replaceChildren();$('bundle-count').textContent='';
+  $('bundle-source').hidden=true;$('bundle-source').textContent='';
+  $('analysis-results').hidden=true;$('analysis-items').replaceChildren();$('analysis-groups').replaceChildren();
+  $('analysis-file').replaceChildren(new Option('All files',''));
+  $('analysis-search').value='';$('analysis-severity').value='';$('analysis-period').value='all';appliedAnalysisPeriod='all';
+  $('analysis-summary').textContent='';$('analysis-message').textContent='';
+  $('bundle-status').textContent='';$('investigation-expiry').textContent='No active investigation';
+  if(clearInputs){$('analysis-files').value='';$('bundle-file').value='';}
+  updateControls();
+}
+function trackInvestigation(token,expiresAt){
+  investigationToken=token;
+  try{sessionStorage.setItem('ras.active-investigation',JSON.stringify({token,expiresAt}));}catch{}
+  clearTimeout(expiryTimer);
+  const deadline=new Date(expiresAt*1000);
+  $('investigation-expiry').textContent='Investigation expires '+deadline.toLocaleString();
+  expiryTimer=setTimeout(()=>{
+    if(investigationToken===token){
+      resetView(true);
+      $('investigation-expiry').textContent='Investigation expired. Upload again to start a new one.';
+    }
+  },Math.max(0,deadline-Date.now()));
+  updateControls();
+}
+async function removeInvestigation(clearInputs){
+  if(investigationToken){
+    const response=await fetch('/api/investigation/clear',{method:'POST',
+      headers:{'Content-Type':'application/json','X-Logwatch-Analyze':'1'},
+      body:JSON.stringify({token:investigationToken})});
+    if(!response.ok)throw new Error('Server cleanup failed. Please retry Clear investigation.');
+  }
+  resetView(clearInputs);
+}
+async function prepareReplacement(){
+  if(!investigationToken)return true;
+  try{await removeInvestigation(false);return true;}
+  catch(error){$('investigation-expiry').textContent=error.message;return false;}
+}
+// Keep the clear control available after a reload of this tab.
+try {
+  const previous=JSON.parse(sessionStorage.getItem('ras.active-investigation'));
+  if(previous && previous.expiresAt*1000>Date.now())trackInvestigation(previous.token,previous.expiresAt);
+} catch { /* Optional when session storage is restricted. */ }
+$('clear-investigation').addEventListener('click',async()=>{
+  busyChanging=true;updateControls();
+  try{await removeInvestigation(true);}
+  catch(error){$('investigation-expiry').textContent=error.message;}
+  finally{busyChanging=false;updateControls();}
 });
+for(const id of ['analysis-files','bundle-file'])$(id).addEventListener('change',updateControls);
 $('bundle-upload').addEventListener('click',async()=>{
   const file=$('bundle-file').files[0];if(!file){$('bundle-status').textContent='Choose a support bundle first.';return;}
   if(file.size>1024**3){$('bundle-status').textContent='The compressed bundle exceeds 1 GiB.';return;}
-  $('bundle-upload').disabled=true;$('bundle-status').textContent='Uploading and inspecting nested archives…';
+  busyChanging=true;updateControls();$('bundle-status').textContent='Uploading and inspecting nested archives…';
   try{
-    if(bundleData){
-      const cleared=await fetch('/api/bundle/clear',{method:'POST',headers:{'Content-Type':'application/json','X-Logwatch-Analyze':'1'},body:JSON.stringify({token:bundleData.token})});
-      if(!cleared.ok)throw new Error('Could not clear the previous bundle');
-      bundleData=null;$('bundle-browser').hidden=true;$('bundle-clear').disabled=true;
-    }
+    if(!await prepareReplacement())return;
+    $('analysis-files').value='';
     const response=await fetch('/api/bundle',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Logwatch-Analyze':'1'},body:file,signal:AbortSignal.timeout(900000)});
     if(!response.ok)throw new Error(await response.text());
-    bundleData=await response.json();$('bundle-browser').hidden=false;$('bundle-clear').disabled=false;
+    bundleData=await response.json();$('bundle-browser').hidden=false;trackInvestigation(bundleData.token,bundleData.expires_at);
     $('bundle-server').replaceChildren(new Option('All servers',''),...bundleData.servers.map(s=>new Option(`${s.name} (${s.logs.length} logs)`,s.name)));
     renderBundleLogs();$('bundle-status').textContent=`Bundle ready. ${bundleData.skipped} non-text entries skipped. Choose a server, then Analyse log.`;
   }catch(error){$('bundle-status').textContent=`Bundle upload failed: ${error.message.replace(/<[^>]+>/g,' ')}`;}
-  finally{$('bundle-upload').disabled=false;}
+  finally{busyChanging=false;updateControls();}
 });
 
 let editingIssueId=null;

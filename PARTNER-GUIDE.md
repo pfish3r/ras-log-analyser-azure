@@ -12,6 +12,10 @@ The selected logs are sent to the server hosting that address for processing. Us
 
 Use **Theme** in the header to choose **Dark**, **Light** or **Parallels**. The browser remembers your choice on this site when local storage is available. **Partner guide** opens this guide in another tab so you can keep your results on screen.
 
+## Clearing temporary data
+
+The expiry time above the upload controls uses your local clock. **Clear investigation** removes this tab’s server-side index and temporary bundle files, then clears its selected files, filters and results. Starting a different upload replaces the current investigation. Closing the tab leaves server cleanup to the expiry timer. The shared issue library keeps the resolutions and sample messages you explicitly saved. Individual uploads use a temporary SQLite index on the server; it can contain the original message text and parsed fields until cleanup.
+
 ## Upload limits
 
 | Input | Limit per upload |
@@ -49,7 +53,7 @@ Selecting several files lets you compare recurring messages across them. Use **L
 1. Under **RAS farm support bundle**, choose the original ZIP or TAR.GZ and select **Open support bundle**. Wait for the server and log inventory.
 2. Use **Server** to narrow the inventory. Read the archive path to distinguish files with the same name. Nested server debug ZIPs are inspected automatically. Farm-level files can appear in their own group.
 3. Select **Analyse log** beside the file you want. The results below apply to that selected log. Check the source server and archive path before interpreting the counts.
-4. To investigate another server, select its log from the inventory. When finished, select **Clear bundle** to remove the temporary server copy. Sessions expire after one hour and expired copies are cleaned up on a later bundle request. Closing the tab alone does not immediately clear the copy.
+4. To investigate another server, select its log from the inventory. When finished, select **Clear investigation** to remove the temporary server copy. The displayed expiry is one hour from investigation creation. The server checks for expired files every 15 seconds, including while idle. An in-flight operation finishes before its files are removed. Closing the tab alone does not immediately clear the copy.
 
 Text files ending in `.log`, `.txt` or `.out` can appear in the bundle inventory. Binary files such as Windows event logs (`.evtx`) are skipped.
 
@@ -75,6 +79,8 @@ Text files ending in `.log`, `.txt` or `.out` can appear in the bundle inventory
 
 When a message contains a saved phrase and the severity matches, select **Resolution: …** beside the row to read the notes. Open **Issue library** to search, create or edit entries. Treat each resolution as a lead to verify against the affected environment.
 
+**Restore defaults** loads the shipped error phrases and user/host rules into the parser editor. Review or edit them, then choose **Save and apply**. Cancel discards the draft. Already indexed files retain their original classifications. Upload or open a new investigation to use the new settings.
+
 **Parsing settings** changes how subsequent analyses recognise error phrases and extract users or hosts. These settings apply to the whole instance. Coordinate changes with its owner. For a single investigation, use the result filters.
 
 ## Troubleshooting
@@ -85,6 +91,6 @@ When a message contains a saved phrase and the severity matches, select **Resolu
 | A small compressed bundle fails inspection | Check the exact error. A 90 MB upload can contain a single entry larger than **1 GiB** once expanded. There is also a **20,000-entry** inspection limit across nested archives, a **2 GiB** cumulative inspection budget and a nesting limit. Try the relevant server's debug ZIP on its own. If one text log is too large, split a copy at line boundaries and retain the original for line references. |
 | Individual uploads exceed a limit | Use at most **10 files** per run. The browser checks combined file size and the server checks decoded text against **1 GiB**. Analysis also limits processed lines to **5 million**, with a **1 MiB** line limit. Narrow the input to the incident period and retry. |
 | The bundle expired or three bundles are already open | Reopen an expired bundle. For a busy instance, clear your finished bundle or try again after another session clears or expires. Three bundle slots are shared across users. |
-| Analysis is slow or reports a failure | Large logs are processed again when filters change. Wait for completion and read the status message. A failed analysis can leave the previous results on screen. Recheck the source before using them. |
+| Analysis is slow or reports a failure | The first analysis builds a temporary index. Filters and pages query the index. A broad text search can still take time. Wait for completion and read the status message. A failed analysis can leave the previous results on screen. Recheck the source before using them. |
 
 For help, give your Sales Engineer the exact error text, the upload type and approximate size, the filters used, and the last step that worked. A short, redacted example is usually enough to begin investigating.

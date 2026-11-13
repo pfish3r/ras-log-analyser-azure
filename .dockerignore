@@ -5,6 +5,8 @@
 !.dockerignore
 !requirements-server.txt
 !app.py
+!log_index.py
+!parser-defaults.json
 !production.py
 !bundle.py
 !import_issues.py

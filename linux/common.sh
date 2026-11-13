@@ -8,7 +8,7 @@ require_root() { [[ $EUID == 0 ]] || { echo 'Run with sudo.' >&2; exit 1; }; }
 build_release() {
   release="$BASE/releases/$(date -u +%Y%m%dT%H%M%S)-$$"
   install -d -m 755 "$release"
-  for file in VERSION version_stamp.py app.py production.py bundle.py import_issues.py requirements-server.txt appsettings.json; do
+  for file in log_index.py parser-defaults.json VERSION version_stamp.py app.py production.py bundle.py import_issues.py requirements-server.txt appsettings.json; do
     install -m 644 "$PACKAGE/$file" "$release/$file"
   done
   cp -R "$PACKAGE/static" "$release/static"

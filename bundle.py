@@ -18,6 +18,11 @@ MAX_BUNDLE_BYTES = 1024**3
 class BundleStore:
     def __init__(self):
         self.sessions = {}
+        self.indexes = {}
+        self.index_locks = {}
+        self.timer = None
+        self.ttl = 3600
+        self.sweep_seconds = 15
         self.lock = threading.RLock()
 
     def upload(self, stream, length):
@@ -25,7 +30,7 @@ class BundleStore:
             raise ValueError('Support bundles must be between 1 byte and 1 GiB compressed')
         with self.lock:
             self.prune()
-            if len(self.sessions) >= 3:
+            if sum(records is not None for _, _, records in self.sessions.values()) >= 3:
                 raise ValueError('Three bundles are already open. Clear an existing bundle before uploading another.')
             temp = tempfile.TemporaryDirectory(prefix='ras-support-')
             root = Path(temp.name)
@@ -115,9 +120,8 @@ class BundleStore:
                 if not (magic.startswith(b'PK') or magic.startswith(b'\x1f\x8b')):
                     raise ValueError('Choose a ZIP or TAR.GZ support bundle')
                 visit(uploaded, 'Support bundle', '', 0)
-                token = secrets.token_urlsafe(32)
-                self.sessions[token] = (time.monotonic(), temp, records)
-                return {'token': token, 'skipped': skipped[0], 'servers': [
+                token, expiry = self.register(temp, records)
+                return {'token': token, 'expires_at': expiry, 'skipped': skipped[0], 'servers': [
                     {'name': name, 'logs': [{k: v for k, v in record.items() if k != 'disk'}
                                            for record in logs]} for name, logs in servers.items()]}
             except (zipfile.BadZipFile, tarfile.TarError, RuntimeError, EOFError, OSError) as exc:
@@ -127,29 +131,112 @@ class BundleStore:
                 temp.cleanup()
                 raise
 
+    def register(self, temp, records):
+        with self.lock:
+            self.prune()
+            if len(self.sessions) >= 16:
+                raise ValueError("Temporary investigation capacity reached. Clear a finished investigation.")
+            token = secrets.token_urlsafe(32)
+            self.sessions[token] = (time.monotonic(), temp, records)
+            self.indexes[token] = {}
+            self.index_locks[token] = threading.RLock()
+            if self.timer is None:
+                self.schedule()
+            return token, time.time() + self.ttl
+
+    def schedule(self):
+        self.timer = threading.Timer(self.sweep_seconds, self.sweep)
+        self.timer.daemon = True
+        self.timer.start()
+
+    def sweep(self):
+        with self.lock:
+            self.timer = None
+            try:
+                self.prune()
+            finally:
+                if self.sessions:
+                    self.schedule()
+
     def prune(self):
-        for token, (created, temp, _) in list(self.sessions.items()):
-            if time.monotonic() - created > 3600:
-                temp.cleanup()
-                del self.sessions[token]
+        with self.lock:
+            for token, (created, _, _) in list(self.sessions.items()):
+                if time.monotonic() - created >= self.ttl:
+                    guard = self.index_locks[token]
+                    if guard.acquire(blocking=False):
+                        try:
+                            self.clear(token)
+                        finally:
+                            guard.release()
 
     def clear(self, token):
         with self.lock:
-            session = self.sessions.pop(token, None)
-            if session:
-                session[1].cleanup()
+            if token in self.sessions:
+                with self.index_locks[token]:
+                    self.sessions[token][1].cleanup()
+                    del self.sessions[token], self.indexes[token], self.index_locks[token]
         return {'cleared': True}
 
-    def analyze(self, payload, analyser):
+    def individual(self, payload, analyser):
+        if not isinstance(payload, dict):
+            raise ValueError("Choose one or more log files")
+        if not payload.get("Indexed"):
+            with tempfile.TemporaryDirectory() as folder:
+                return analyser.build_index(payload, Path(folder)/"index.sqlite3").query(payload, 5000)
+        temp = tempfile.TemporaryDirectory(prefix="ras-investigation-")
+        try:
+            token, _ = self.register(temp, None)
+        except Exception:
+            temp.cleanup()
+            raise
+        try:
+            return self.index_query(token, "", payload, analyser, files=payload)
+        except Exception:
+            self.clear(token)
+            raise
+
+    def index_query(self, token, log_id, payload, analyser, files=None):
         with self.lock:
             self.prune()
-            session = self.sessions.get(payload.get('token'))
-            if not session:
-                raise ValueError('Bundle expired or was cleared. Upload it again.')
-            record = next((r for r in session[2] if r['id'] == payload.get('log_id')), None)
-            if record is None:
-                raise ValueError('Select a log from this bundle')
-            raw = record['disk'].read_bytes()
+            if token not in self.sessions:
+                raise ValueError("Investigation expired or cleared. Upload it again.")
+            created, temp, records = self.sessions[token]
+            guard = self.index_locks[token]
+            guard.acquire()
+        try:
+            remaining = created + self.ttl - time.monotonic()
+            if remaining <= 0:
+                raise ValueError("Investigation expired. Upload it again.")
+            cache = self.indexes[token]
+            record = None
+            if records is not None:
+                record = next((r for r in records if r["id"] == log_id), None)
+                if record is None:
+                    raise ValueError("Select a log from this bundle")
+            elif log_id:
+                raise ValueError("Invalid log selection")
+            if log_id not in cache:
+                if record is not None:
+                    files = {"Files": [{"Name": record["name"], "Content": self.decode(record)}]}
+                if files is None:
+                    raise ValueError("Missing uploaded files")
+                path = Path(temp.name) / ("index-" + log_id + ".sqlite3")
+                try:
+                    cache[log_id] = analyser.build_index(files, path)
+                except Exception:
+                    path.unlink(missing_ok=True)
+                    raise
+            result = cache[log_id].query(payload, 5000)
+            result.update(investigation=token, expires_at=time.time() + created + self.ttl - time.monotonic())
+            if record is not None:
+                result["bundle_source"] = {"server":record["server"], "path":record["path"]}
+            return result
+        finally:
+            guard.release()
+
+    @staticmethod
+    def decode(record):
+        raw = record["disk"].read_bytes()
         if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
             encoding = 'utf-16'
         elif b'\x00' in raw[:200]:
@@ -160,10 +247,10 @@ class BundleStore:
             content = raw.decode(encoding)
         except UnicodeDecodeError:
             content = raw.decode('cp1252', errors='replace')
-        result = analyser.analyze_logs({'Files': [{'Name': record['name'], 'Content': content}],
-                                         **{key: payload[key] for key in ('Since', 'Until', 'Severity', 'Query', 'FileId', 'Offset', 'PageSize') if key in payload}})
-        result['bundle_source'] = {'server': record['server'], 'path': record['path']}
-        return result
+        return content
+
+    def analyze(self, payload, analyser):
+        return self.index_query(payload.get("token"), payload.get("log_id"), payload, analyser)
 
     def request(self, path, stream, length, content_type, authorized, analyser):
         if authorized != '1':
@@ -177,6 +264,10 @@ class BundleStore:
         payload = json.loads(stream.read(length))
         if not isinstance(payload, dict):
             raise ValueError('Invalid bundle selection')
-        if path == '/api/bundle/clear':
+        if not isinstance(payload.get('token'), str):
+            raise ValueError('Invalid investigation token')
+        if path in ('/api/bundle/clear', '/api/investigation/clear'):
             return self.clear(payload.get('token'))
+        if path == "/api/investigation/query":
+            return self.index_query(payload["token"], payload.get("log_id", ""), payload, analyser)
         return self.analyze(payload, analyser)

@@ -38,6 +38,8 @@ Set the hostname's A record in your client's DNS to the VM address reachable fro
 
 Traefik obtains and renews the certificate through GoDaddy. The script verifies the trusted certificate and application on the VM. Compose publishes HTTPS on 443 and removes the direct HTTP port. Use recent Docker Compose with support for the !reset tag. The generated Compose override applies on subsequent updates. Back up the TLS state privately alongside your issue-library backups.
 
+See the [feature changelog](CHANGELOG.md) for release history.
+
 ## Version numbering
 
 The header displays the release in `VERSION`. GitHub Actions increments the patch number after each push to main. For a group of new features, include a minor bump such as `1.2.0` in the push. For a major release, use `2.0.0`. An explicit version skips the automatic patch bump. Pull after the version workflow completes and rebuild the container to deploy the new number.
