@@ -10,6 +10,19 @@ Open the HTTPS address supplied by your Sales Engineer or deployment owner. If y
 
 The selected logs are sent to the server hosting that address for processing. Use an instance approved for the customer data involved. Each tab has its own analysis view. The issue library and parsing settings are shared across users of the same instance. Keep the tab open during your investigation. Refreshing it clears your current view.
 
+Use **Theme** in the header to choose **Dark**, **Light** or **Parallels**. The browser remembers your choice on this site when local storage is available. **Partner guide** opens this guide in another tab so you can keep your results on screen.
+
+## Upload limits
+
+| Input | Limit per upload |
+| --- | --- |
+| Individual logs | Up to **10 files** totalling **1 GiB combined**. The selected files and their decoded UTF-8 text must each fit within that combined size. |
+| Support bundle (ZIP or TAR.GZ) | **1 GiB compressed** for the uploaded archive. Each file extracted from it can be up to **1 GiB**. ZIP members named `perf.dat` are skipped before extraction. |
+| Nested bundle inspection | **2 GiB cumulative** across the uploaded archive and the contents written during inspection, including nested archives. Up to **20,000 inspected entries** and **8 levels** of nesting. |
+| Text analysis | Up to **5 million processed lines** per analysis and **1 MiB** per line. |
+
+A 90 MB compressed bundle can exceed an inspection limit if it contains a large expanded entry. If the error names a file, select a smaller server archive or split that text log at line boundaries.
+
 ## Try a three-line investigation
 
 To learn the controls without customer data, save these synthetic lines as a plain-text file named `example.log`:

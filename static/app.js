@@ -1,3 +1,21 @@
+function initializeThemePicker() {
+  const picker = document.getElementById('theme-picker');
+  const key = 'ras-log-analyser.theme';
+  const themes = new Set(['dark', 'light', 'parallels']);
+  let choice = 'dark';
+  try {
+    const saved = localStorage.getItem(key);
+    if (themes.has(saved)) choice = saved;
+  } catch { /* The selector still works when browser storage is restricted. */ }
+  picker.value = choice;
+  document.documentElement.dataset.theme = choice;
+  picker.addEventListener('change', () => {
+    document.documentElement.dataset.theme = picker.value;
+    try { localStorage.setItem(key, picker.value); } catch { /* Session only. */ }
+  });
+}
+initializeThemePicker();
+
 let knownIssues=[];
 const $ = id => document.getElementById(id);
 let analysisData = null, selectedAnalysisIssue = null;
