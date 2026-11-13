@@ -298,3 +298,19 @@ $('library-form').addEventListener('submit',async event=>{
 });
 loadKnownIssues().catch(error=>{$('library-status').textContent=error.message;});
 
+
+function showSessionNotice() {
+  const key = 'ras-log-analyser.disclaimer.v1';
+  const dialog = $('session-notice');
+  try {
+    if (sessionStorage.getItem(key) === 'seen') return;
+  } catch {
+    // Browsers with restricted storage can still display and dismiss the notice.
+  }
+  $('session-notice-text').textContent = $('notice-text').textContent;
+  dialog.addEventListener('close', () => {
+    try { sessionStorage.setItem(key, 'seen'); } catch { /* Storage unavailable. */ }
+  }, { once: true });
+  dialog.showModal();
+}
+showSessionNotice();

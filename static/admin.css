@@ -3,3 +3,11 @@
 
 .error-actions{flex-wrap:wrap}.known-match{color:var(--green)}.known-card{padding:16px 0;border-bottom:1px solid var(--border)}.known-card a{display:block;color:#a8d8ff;overflow-wrap:anywhere;margin:8px 0}.resolution-notes{white-space:pre-wrap}#library-form{display:grid;gap:14px;margin-top:25px}#library-status{white-space:pre-wrap;color:var(--green)}
 
+
+.project-notice { margin: 0 0 20px; padding: 14px 18px; border-left: 3px solid #d6a35c; background: var(--panel); }
+.project-notice h2 { margin: 0; font-size: 15px; }
+.project-notice p, #session-notice p { margin: 8px 0 0; line-height: 1.55; }
+.project-notice p { font-size: 13px; }
+#session-notice { width: min(540px, calc(100vw - 32px)); padding: 24px; }
+#session-notice h2 { margin: 0; font-size: 20px; }
+#session-notice form { margin-top: 20px; text-align: right; }
