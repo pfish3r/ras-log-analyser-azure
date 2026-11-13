@@ -1,11 +1,5 @@
 # Only application source required by the image enters the build context.
 **
-!.git/
-!.git/HEAD
-!.git/refs/
-!.git/refs/heads/
-!.git/refs/heads/**
-!.git/packed-refs
 !version_stamp.py
 !Dockerfile
 !.dockerignore
@@ -22,3 +16,4 @@
 !static/app.js
 !static/style.css
 !static/admin.css
+!VERSION

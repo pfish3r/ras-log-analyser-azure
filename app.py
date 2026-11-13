@@ -441,7 +441,7 @@ def handler_for(analyser):
                 elif parts.path in ("/", "/app.js", "/style.css", "/admin.css"):
                     name = {"/": "index.html", "/app.js": "app.js", "/style.css": "style.css", "/admin.css": "admin.css"}[parts.path]
                     content = (ROOT / "static" / name).read_bytes()
-                    if name == "index.html" and b"v1.1+dev" in content:
+                    if name == "index.html" and b"__APP_VERSION__" in content:
                         content = stamp(content, ROOT)
                     mime = {"index.html": "text/html", "app.js": "text/javascript", "style.css": "text/css", "admin.css": "text/css"}[name]
                 else:

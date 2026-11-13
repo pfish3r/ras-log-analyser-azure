@@ -1,0 +1,36 @@
+name: Increment release version
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: main
+      - name: Increment patch unless this push sets the release explicitly
+        env:
+          BEFORE: ${{ github.event.before }}
+          AFTER: ${{ github.event.after }}
+        run: |
+          set -eu
+          if ! git diff --quiet "$BEFORE" "$AFTER" -- VERSION; then exit 0; fi
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git checkout --detach origin/main
+            # A newer explicit release supersedes this push.
+            if ! git diff --quiet "$AFTER" HEAD -- VERSION && git log --format=%s "$AFTER"..HEAD -- VERSION | grep -qv '^Bump patch for '; then exit 0; fi
+            if git log --format=%s "$AFTER"..HEAD -- VERSION | grep -Fxq "Bump patch for $AFTER"; then exit 0; fi
+            python -c 'from pathlib import Path; p=Path("VERSION"); a,b,c=map(int,p.read_text().strip().split(".")); p.write_text(f"{a}.{b}.{c+1}\n")'
+            git config user.name github-actions[bot]
+            git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+            git add VERSION
+            git commit -m "Bump patch for $AFTER"
+            if git push origin HEAD:main; then exit 0; fi
+            sleep "$attempt"
+          done
+          exit 1
