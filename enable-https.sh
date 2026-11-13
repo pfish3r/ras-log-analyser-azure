@@ -63,6 +63,7 @@ services:
       - "--certificatesresolvers.le.acme.storage=/acme/acme.json"
       - "--certificatesresolvers.le.acme.caserver=https://acme-v02.api.letsencrypt.org/directory"
       - "--certificatesresolvers.le.acme.dnschallenge.provider=godaddy"
+      - "--certificatesresolvers.le.acme.dnschallenge.resolvers=1.1.1.1:53,1.0.0.1:53"
 EOF
 docker compose -f compose.yaml -f "$temp" config --quiet
 cat > https-router.yml.tmp <<EOF
