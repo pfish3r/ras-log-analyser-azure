@@ -52,7 +52,7 @@
   --action-hover: #0052a3;
 }
 :root:is([data-theme="light"], [data-theme="parallels"]) {
-  & :is(input, textarea, select, button, dialog, .header-actions a) { background-color: var(--panel); border-color: var(--border); }
+  & :where(input, textarea, select, button, dialog, .header-actions a) { background-color: var(--panel); border-color: var(--border); }
   & :is(button, .header-actions a):hover { border-color: var(--green); }
   & .primary { background: var(--action); color: #fff; border-color: var(--action); }
   & .primary:hover { background: var(--action-hover); }
