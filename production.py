@@ -16,7 +16,7 @@ def application_for(analyser):
             path = environ.get("PATH_INFO")
             if environ.get("HTTP_SEC_FETCH_SITE") == "cross-site":
                 status, content = "403 Forbidden", b"Cross-site access denied"
-            elif method == "POST" and path in ("/api/bundle", "/api/bundle/analyze", "/api/bundle/clear", "/api/investigation/query", "/api/investigation/clear"):
+            elif method == "POST" and path in ("/api/bundle", "/api/bundle/analyze", "/api/bundle/overview", "/api/bundle/clear", "/api/investigation/query", "/api/investigation/clear"):
                 result = analyser.bundles.request(path, environ["wsgi.input"], int(environ.get("CONTENT_LENGTH") or "0"),
                     environ.get("CONTENT_TYPE", ""), environ.get("HTTP_X_LOGWATCH_ANALYZE"), analyser)
                 content, mime = json.dumps(result).encode(), "application/json"

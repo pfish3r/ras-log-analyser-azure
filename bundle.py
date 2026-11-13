@@ -195,7 +195,7 @@ class BundleStore:
             self.clear(token)
             raise
 
-    def index_query(self, token, log_id, payload, analyser, files=None):
+    def index_query(self, token, log_id, payload, analyser, files=None, overview=None):
         with self.lock:
             self.prune()
             if token not in self.sessions:
@@ -226,6 +226,9 @@ class BundleStore:
                 except Exception:
                     path.unlink(missing_ok=True)
                     raise
+            if overview is not None:
+                cache[log_id].add_overview(overview)
+                return
             result = cache[log_id].query(payload, 5000)
             result.update(investigation=token, expires_at=time.time() + created + self.ttl - time.monotonic())
             if record is not None:
@@ -249,6 +252,32 @@ class BundleStore:
             content = raw.decode('cp1252', errors='replace')
         return content
 
+    def overview(self, token, analyser):
+        with self.lock:
+            self.prune()
+            session = self.sessions.get(token)
+            if session is None or session[2] is None:
+                raise ValueError("Bundle expired or cleared. Open the bundle again.")
+            records = list(session[2])
+        totals = dict(total=0, logins=0, failed=0, errors=0, users=set(), hosts=set())
+        omitted = 0
+        ranked = []
+        for record in records:
+            try:
+                previous_errors = totals["errors"]
+                self.index_query(token, record["id"], {}, analyser, overview=totals)
+                errors = totals["errors"] - previous_errors
+                if errors:
+                    ranked.append({key: record[key] for key in ("id", "name", "server", "path")} | {"errors": errors})
+            except ValueError:
+                with self.lock:
+                    if token not in self.sessions or time.monotonic() >= session[0] + self.ttl:
+                        raise
+                omitted += 1
+        totals.update(users=len(totals["users"]), hosts=len(totals["hosts"]))
+        ranked.sort(key=lambda log: (-log["errors"], log["server"].casefold(), log["path"].casefold()))
+        return dict(stats=totals, included=len(records)-omitted, omitted=omitted, top_logs=ranked[:5])
+
     def analyze(self, payload, analyser):
         return self.index_query(payload.get("token"), payload.get("log_id"), payload, analyser)
 
@@ -266,6 +295,8 @@ class BundleStore:
             raise ValueError('Invalid bundle selection')
         if not isinstance(payload.get('token'), str):
             raise ValueError('Invalid investigation token')
+        if path == '/api/bundle/overview':
+            return self.overview(payload['token'], analyser)
         if path in ('/api/bundle/clear', '/api/investigation/clear'):
             return self.clear(payload.get('token'))
         if path == "/api/investigation/query":

@@ -247,6 +247,38 @@ function isPrimaryRasLog(path){
   const filename = path.split(/[\\/]/).pop();
   return /^(?:controller|vdiagent|gateway|tsagent)(?:$|[._ -])/i.test(filename);
 }
+async function loadBundleOverview(token){
+  const fields = {'analysis-total':'total','summary-logins':'logins','summary-failed':'failed','analysis-errors':'errors'};
+  for(const id of [...Object.keys(fields),'summary-entities'])$('bundle-'+id).textContent='—';
+  $('bundle-ranking').hidden=true;
+  $('bundle-top-logs').replaceChildren();
+  $('bundle-summary-status').textContent='Calculating totals across the bundle…';
+  try{
+    const response=await fetch('/api/bundle/overview',{method:'POST',headers:{'Content-Type':'application/json','X-Logwatch-Analyze':'1'},body:JSON.stringify({token})});
+    if(!response.ok)throw new Error('Could not calculate bundle totals.');
+    const result=await response.json();
+    if(bundleData?.token!==token)return;
+    for(const [id,key] of Object.entries(fields))$('bundle-'+id).textContent=result.stats[key].toLocaleString();
+    $('bundle-summary-entities').textContent=`${result.stats.users.toLocaleString()} / ${result.stats.hosts.toLocaleString()}`;
+    $('bundle-ranking').hidden=false;
+    for(const log of result.top_logs){
+      const item=el('li'), button=el('button');
+      button.type='button';
+      button.append(el('strong',log.server+' · '+log.name),el('span',log.errors.toLocaleString()+(log.errors===1?' error':' errors')),el('small',log.path));
+      button.addEventListener('click',async()=>{
+        if(analysisRunning || busyChanging || bundleData?.token!==token)return;
+        $('bundle-server').value=log.server;renderBundleLogs();
+        $('analysis-period').value='all';$('analysis-search').value='';$('analysis-severity').value='error';
+        if(await runAnalysis({token,log_id:log.id}))$('analysis-results').scrollIntoView({block:'start'});
+      });
+      item.append(button);$('bundle-top-logs').append(item);
+    }
+    if(!result.top_logs.length)$('bundle-top-logs').append(el('li','No errors found in the analysed logs.'));
+    $('bundle-summary-status').textContent=`Totals from ${result.included} text logs.${result.omitted ? ' Partial overview: '+result.omitted+' logs could not be analysed.' : ''}`;
+  }catch(error){
+    if(bundleData?.token===token)$('bundle-summary-status').textContent=error.message+' Select a log to inspect it individually.';
+  }
+}
 function renderBundleLogs(){
   if(!bundleData)return;
   const server=$('bundle-server').value;
@@ -355,7 +387,7 @@ $('bundle-upload').addEventListener('click',async()=>{
     if(!response.ok)throw new Error(await response.text());
     bundleData=await response.json();$('bundle-browser').hidden=false;trackInvestigation(bundleData.token,bundleData.expires_at);
     $('bundle-server').replaceChildren(new Option('All servers',''),...bundleData.servers.map(s=>new Option(`${s.name} (${s.logs.length} logs)`,s.name)));
-    renderBundleLogs();$('bundle-status').textContent=`Bundle ready. ${bundleData.skipped} non-text entries skipped. Choose a server, then Analyse log.`;
+    renderBundleLogs();loadBundleOverview(bundleData.token);$('bundle-status').textContent=`Bundle ready. ${bundleData.skipped} non-text entries skipped. Choose a server, then Analyse log.`;
   }catch(error){$('bundle-status').textContent=`Bundle upload failed: ${error.message.replace(/<[^>]+>/g,' ')}`;}
   finally{busyChanging=false;updateControls();}
 });

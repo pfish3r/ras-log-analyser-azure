@@ -397,7 +397,7 @@ def handler_for(analyser):
                 self.send_error(403)
                 return
             path = urlsplit(self.path).path
-            if path in ("/api/bundle", "/api/bundle/analyze", "/api/bundle/clear", "/api/investigation/query", "/api/investigation/clear"):
+            if path in ("/api/bundle", "/api/bundle/analyze", "/api/bundle/overview", "/api/bundle/clear", "/api/investigation/query", "/api/investigation/clear"):
                 try:
                     result = analyser.bundles.request(path, self.rfile, int(self.headers.get("Content-Length", "0")),
                         self.headers.get("Content-Type", ""), self.headers.get("X-Logwatch-Analyze"), analyser)

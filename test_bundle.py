@@ -53,6 +53,23 @@ class BundleTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, 'reached entry 3'):
                     self.store.upload(io.BytesIO(outer), len(outer))
 
+    def test_farm_overview_and_ranked_drilldown(self):
+        archive = make_zip([
+            (name + "_DebugLog.zip", make_zip([("controller.log", "[E] failure\n" * count + "[I] ok")]))
+            for name, count in (("C", 3), ("B", 3), ("A", 4), ("D", 2), ("E", 1), ("F", 1), ("G", 0))])
+        opened = self.store.upload(io.BytesIO(archive), len(archive))
+        result = self.store.overview(opened["token"], self.collector)
+        self.assertEqual(result["stats"]["errors"], 14)
+        self.assertEqual(result["stats"]["total"], 21)
+        self.assertEqual(result["included"], 7)
+        self.assertEqual(result["omitted"], 0)
+        self.assertEqual([(row["server"], row["errors"]) for row in result["top_logs"]],
+                         [("A",4),("B",3),("C",3),("D",2),("E",1)])
+        first = result["top_logs"][0]
+        data = self.store.analyze({"token":opened["token"], "log_id":first["id"], "Severity":"error"}, self.collector)
+        self.assertEqual(data["matched"], first["errors"])
+        self.assertEqual(data["bundle_source"]["path"], first["path"])
+
     def tearDown(self):
         for token in list(self.store.sessions):
             self.store.clear(token)
