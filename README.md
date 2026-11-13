@@ -1,5 +1,7 @@
 # RAS Log Analyser for Azure Linux VMs
 
+**Using the analyser?** Start with the [partner user guide](PARTNER-GUIDE.md) for a worked example, support-bundle analysis, shared resolutions and troubleshooting.
+
 Container deployment of the upload-only [RAS Log Analyser](https://github.com/pfish3r/ras-log-analyser), based on v1.1.0. Supports Ubuntu Server 24.04/22.04 and Debian 12/13 with systemd. The VM needs outbound access to GitHub, Docker Hub, PyPI and the OS package repositories.
 
 ## Install on your VM
