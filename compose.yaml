@@ -1,12 +1,12 @@
-name: ras-log-analyser
+name: ras-log-analyser-azure
 services:
   analyser:
     build: .
-    image: ras-log-analyser:local
+    image: ras-log-analyser-azure:local
     restart: unless-stopped
     init: true
     ports:
-      - "127.0.0.1:${RAS_ANALYSER_PORT:-8767}:8766"
+      - "${RAS_ANALYSER_BIND:-127.0.0.1}:${RAS_ANALYSER_PORT:-8768}:8766"
     volumes:
       - analyser-data:/data
     security_opt:
@@ -20,4 +20,4 @@ services:
         max-file: "3"
 volumes:
   analyser-data:
-    name: ras-log-analyser-data
+    name: ras-log-analyser-azure-data

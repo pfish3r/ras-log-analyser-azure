@@ -2,7 +2,7 @@
 import argparse,hashlib,tarfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parent
-FILES=['Dockerfile','compose.yaml','.dockerignore','container_entrypoint.py','container_backup.py','test_container.py','container_smoke.py','CONTAINERS.md','app.py','production.py','bundle.py','import_issues.py','appsettings.json','requirements-server.txt',
+FILES=['install-azure.sh','Dockerfile','compose.yaml','.dockerignore','container_entrypoint.py','container_backup.py','test_container.py','container_smoke.py','CONTAINERS.md','app.py','production.py','bundle.py','import_issues.py','appsettings.json','requirements-server.txt',
        'start.cmd','README.md','build_package.py','test_app.py','test_production.py','test_bundle.py','test_upload_only.py',
        'static/index.html','static/app.js','static/style.css','static/admin.css',
        'linux/common.sh','linux/01-install.sh','linux/03-update.sh','linux/04-backup.sh','linux/ras-log-analyser.service']

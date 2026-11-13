@@ -38,3 +38,21 @@ jobs:
       - name: Remove disposable CI containers and test volume
         if: always()
         run: docker compose down --volumes
+
+  azure-install:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install on fresh checkout with LAN binding
+        run: |
+          sudo bash install-azure.sh --lan
+          cd /opt/ras-log-analyser-azure
+          test "$(sudo docker compose port analyser 8766)" = "0.0.0.0:8768"
+          curl -fsS http://127.0.0.1:8768/api/settings
+      - name: Repeat install as an update and verify the backup
+        run: |
+          sudo bash install-azure.sh
+          cd /opt/ras-log-analyser-azure
+          test "$(sudo docker compose port analyser 8766)" = "0.0.0.0:8768"
+          sudo docker compose exec -T analyser sh -c 'ls /data/backups/*.tar.gz'

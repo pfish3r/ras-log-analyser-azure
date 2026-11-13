@@ -9,25 +9,25 @@ The image is built locally from source, using `python:3.12-slim-bookworm` (Debia
 ## Deploy
 
 ```bash
-git clone https://github.com/pfish3r/ras-log-analyser.git
-cd ras-log-analyser
+git clone https://github.com/pfish3r/ras-log-analyser-azure.git
+cd ras-log-analyser-azure
 sudo docker compose up -d --build --wait
 sudo docker compose ps
 ```
 
 If you already cloned the repository, use that checkout and `git pull --ff-only origin main` first. Do not run linux/01-install.sh for a container deployment.
 
-The host listens on **127.0.0.1:8767**, forwarded to container port 8766. This avoids the standalone analyser's port 8766. From your Windows computer:
+With the default loopback binding, the host listens on **127.0.0.1:8768**, forwarded to container port 8766. This avoids the standalone analyser's port 8766. From your Windows computer:
 
 ```powershell
-ssh -N -L 8767:127.0.0.1:8767 YOUR_SSH_USER@YOUR_DEBIAN_SERVER
+ssh -N -L 8768:127.0.0.1:8768 YOUR_SSH_USER@YOUR_DEBIAN_SERVER
 ```
 
-Open http://127.0.0.1:8767. There is no user authentication; retain the localhost binding and use an SSH tunnel. For a different host port, create a local `.env` containing `RAS_ANALYSER_PORT=8768`; do not commit that file. Update the tunnel to match. An existing systemd installation and its issue library are separate; Docker does not import them automatically.
+Open http://127.0.0.1:8768. There is no user authentication; retain the localhost binding and use an SSH tunnel. For a different host port, create a local `.env` containing `RAS_ANALYSER_PORT=8768`; do not commit that file. Update the tunnel to match. An existing systemd installation and its issue library are separate; Docker does not import them automatically.
 
 ## What persists
 
-The explicit named volume **ras-log-analyser-data** is mounted at `/data`:
+The explicit named volume **ras-log-analyser-azure-data** is mounted at `/data`:
 
 - `/data/issues.sqlite3`: shared common-issue library, including matching phrases, KB URLs and resolution notes.
 - `/data/appsettings.json`: parsing settings, created only on first startup and never replaced during an update.
@@ -36,7 +36,7 @@ The explicit named volume **ras-log-analyser-data** is mounted at `/data`:
 
 The Compose project and volume names are stable even if the checkout directory changes. Use one deployment per volume; do not run multiple independent analyser deployments against it. Fresh named-volume ownership is initialized from the image, allowing the service to remain non-root. Existing hand-created or bind-mounted data needs UID/GID 10001 ownership; the entrypoint deliberately does not change host-file ownership.
 
-Rebuilds, container replacement, restart and normal `docker compose down` retain the volume. **Do not use `docker compose down --volumes`, `docker volume rm ras-log-analyser-data`, or prune this volume if you want to keep the library.**
+Rebuilds, container replacement, restart and normal `docker compose down` retain the volume. **Do not use `docker compose down --volumes`, `docker volume rm ras-log-analyser-azure-data`, or prune this volume if you want to keep the library.**
 
 Uploads and bundle sessions are temporary, are not included in library backups and disappear when a container is replaced. Large archives use container writable-layer disk space, not an in-memory tmpfs. Existing upload and archive limits are unchanged. Large concurrent analyses can still consume substantial RAM; ensure the Debian host has enough RAM and Docker disk space.
 
