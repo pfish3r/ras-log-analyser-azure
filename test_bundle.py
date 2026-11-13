@@ -58,7 +58,13 @@ class BundleTests(unittest.TestCase):
             (name + "_DebugLog.zip", make_zip([("controller.log", "[E] failure\n" * count + "[I] ok")]))
             for name, count in (("C", 3), ("B", 3), ("A", 4), ("D", 2), ("E", 1), ("F", 1), ("G", 0))])
         opened = self.store.upload(io.BytesIO(archive), len(archive))
-        result = self.store.overview(opened["token"], self.collector)
+        import time
+        deadline = time.monotonic() + 10
+        while True:
+            result = self.store.overview_status(opened["token"], self.collector)
+            if result["done"]:break
+            self.assertLess(time.monotonic(), deadline)
+            time.sleep(.01)
         self.assertEqual(result["stats"]["errors"], 14)
         self.assertEqual(result["stats"]["total"], 21)
         self.assertEqual(result["included"], 7)
@@ -69,6 +75,43 @@ class BundleTests(unittest.TestCase):
         data = self.store.analyze({"token":opened["token"], "log_id":first["id"], "Severity":"error"}, self.collector)
         self.assertEqual(data["matched"], first["errors"])
         self.assertEqual(data["bundle_source"]["path"], first["path"])
+
+    def test_open_log_while_overview_indexes_another(self):
+        import threading
+        import time
+        from unittest.mock import patch
+        login = "Login successful user 'alice'"
+        controller = login + "\nLogon failed user 'alice'"
+        data = make_zip([("Controller-1.log", controller), ("gateway.log", login + "\n[E] down")])
+        opened = self.store.upload(io.BytesIO(data), len(data))
+        token = opened["token"]
+        entered, resume = threading.Event(), threading.Event()
+        original = self.collector.build_index
+        def build(payload, path):
+            if payload["Files"][0]["Name"] == "Controller-1.log":
+                entered.set()
+                if not resume.wait(5): raise AssertionError("Concurrent log access stalled")
+            return original(payload, path)
+        from app import Parser, ROOT
+        self.collector.parser = Parser(json.loads((ROOT/"appsettings.json").read_text()))
+        with patch.object(self.collector, "build_index", side_effect=build):
+            self.assertFalse(self.store.overview_status(token,self.collector)["done"])
+            try:
+                self.assertTrue(entered.wait(2))
+                self.assertEqual(self.store.overview_status(token,self.collector)["current"],"Controller-1.log")
+                selected = self.store.analyze({"token":token,"log_id":"1"},self.collector)
+                self.assertEqual(selected["stats"]["logins"],1)
+            finally:
+                resume.set()
+            deadline=time.monotonic()+5
+            while not (result:=self.store.overview_status(token,self.collector))["done"]:
+                self.assertLess(time.monotonic(),deadline)
+                time.sleep(.01)
+        self.assertEqual(result["stats"]["logins"],1)
+        self.assertEqual(result["stats"]["failed"],1)
+        self.assertEqual(result["stats"]["total"],4)
+        self.assertEqual(result["processed"],2)
+        self.assertEqual(result["stats"]["errors"],2)
 
     def tearDown(self):
         for token in list(self.store.sessions):

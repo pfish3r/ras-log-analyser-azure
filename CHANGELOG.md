@@ -1,5 +1,9 @@
 # Feature changelog
 
+## v1.2.4
+
+- Uploads show transfer progress and a separate analysis indicator. Bundle indexing runs in the background with completed-log progress, running totals and a live top-five error ranking. Bundle login counts use controller logs only.
+
 ## v1.2.3
 
 - Opening a support bundle displays automatic all-server, all-date summary cards. A top-five ranking shows each log’s server, archive path and error count; select a ranked log to inspect its errors. Individual analysis retains its own selected-range cards.

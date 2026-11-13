@@ -27,13 +27,14 @@ class LogIndex:
         data["id"] = f"{data['file_id']}:{data['line']}"
         return data
 
-    def add_overview(self, totals):
+    def add_overview(self, totals, controller):
         with closing(sqlite3.connect(self.path)) as db:
             counts = db.execute("""SELECT count(*), count(CASE WHEN kind='login' THEN 1 END),
                 count(CASE WHEN kind='login_failed' THEN 1 END),
                 count(CASE WHEN severity='error' THEN 1 END) FROM entries WHERE blank=0""").fetchone()
             for key, count in zip(("total", "logins", "failed", "errors"), counts):
-                totals[key] += count
+                if controller or key not in ("logins", "failed"):
+                    totals[key] += count
             for column, key in (("user", "users"), ("host", "hosts")):
                 totals[key].update(value for value, in db.execute(
                     f"SELECT DISTINCT {column} FROM entries WHERE blank=0 AND {column} != ''"))

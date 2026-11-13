@@ -122,10 +122,32 @@ function analysisWindow(){
   const local=date=>`${date.getFullYear()}-${String(date.getMonth()+1).padStart(2,'0')}-${String(date.getDate()).padStart(2,'0')}T${String(date.getHours()).padStart(2,'0')}:${String(date.getMinutes()).padStart(2,'0')}:${String(date.getSeconds()).padStart(2,'0')}`;
   return {Since:local(start),Until:local(end)};
 }
+function uploadWithProgress(url, body, contentType, status, progress, nextPhase){
+  progress.hidden=false;progress.max=100;progress.value=0;
+  return new Promise((resolve,reject)=>{
+    const xhr=new XMLHttpRequest();
+    xhr.open('POST',url);
+    xhr.timeout=900000;
+    xhr.setRequestHeader('Content-Type',contentType);
+    xhr.setRequestHeader('X-Logwatch-Analyze','1');
+    xhr.upload.onprogress=event=>{
+      if(event.lengthComputable){
+        progress.value=Math.round(event.loaded/event.total*100);
+        status.textContent='Uploading: '+progress.value+'%';
+      }
+    };
+    xhr.upload.onload=()=>{progress.removeAttribute('value');status.textContent=nextPhase;};
+    xhr.onload=()=>resolve(new Response(xhr.responseText,{status:xhr.status}));
+    xhr.onerror=()=>reject(new Error('Upload connection failed.'));
+    xhr.ontimeout=()=>reject(new Error('Upload or analysis timed out.'));
+    xhr.send(body);
+  });
+}
 async function runAnalysis(source,preserve=false){
   if(analysisRunning){analysisRefreshPending=true;return false;}
   if(!source || (busyChanging && !source.files))return false;
   analysisRunning=true;updateControls();for(const id of ['analysis-file','analysis-search','analysis-severity'])$(id).disabled=true;$('analyze-files').disabled=true;$('analysis-period').disabled=true;
+  $('analysis-progress').hidden=false;$('analysis-progress').removeAttribute('value');
   $('analysis-message').textContent='Reading and analysing the selected date range…';
   const previous={file:$('analysis-file').value,search:$('analysis-search').value,severity:$('analysis-severity').value};
   try{
@@ -146,7 +168,7 @@ async function runAnalysis(source,preserve=false){
       body=JSON.stringify(payload);
       contentType='application/json';
     }
-    const response=await fetch(url,{method:'POST',headers:{'Content-Type':contentType,'X-Logwatch-Analyze':'1'},body,signal:AbortSignal.timeout(900000)});
+    const response=source.files ? await uploadWithProgress(url,body,contentType,$('analysis-message'),$('analysis-progress'),'Upload complete. Indexing log entries…') : await fetch(url,{method:'POST',headers:{'Content-Type':contentType,'X-Logwatch-Analyze':'1'},body,signal:AbortSignal.timeout(900000)});
     if(!response.ok)throw new Error((await response.text()).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim());
     const data=await response.json();
     analysisSource={indexed:true,token:data.investigation,log_id:source.log_id};
@@ -157,7 +179,7 @@ async function runAnalysis(source,preserve=false){
     $('analysis-message').textContent=`${data.stats.total.toLocaleString()} lines in the selected date range from ${data.files} file(s).${data.unknown_timestamps?` ${data.unknown_timestamps.toLocaleString()} lines without a readable timestamp excluded; choose All logs to include them.`:''}`;
     return true;
   }catch(error){$('analysis-message').textContent=`Analysis failed: ${error.message}. Previous results remain displayed.`;return false;}
-  finally{analysisRunning=false;updateControls();for(const id of ['analysis-file','analysis-search','analysis-severity'])$(id).disabled=false;$('analyze-files').disabled=false;$('analysis-period').disabled=false;if(analysisRefreshPending){analysisRefreshPending=false;runAnalysis(analysisSource,true);}}
+  finally{$('analysis-progress').hidden=true;analysisRunning=false;updateControls();for(const id of ['analysis-file','analysis-search','analysis-severity'])$(id).disabled=false;$('analyze-files').disabled=false;$('analysis-period').disabled=false;if(analysisRefreshPending){analysisRefreshPending=false;runAnalysis(analysisSource,true);}}
 }
 async function analyzeFiles(){
   const files=[...$('analysis-files').files];if(!files.length){$('analysis-message').textContent='Choose at least one log file.';return;}
@@ -249,18 +271,23 @@ function isPrimaryRasLog(path){
 }
 async function loadBundleOverview(token){
   const fields = {'analysis-total':'total','summary-logins':'logins','summary-failed':'failed','analysis-errors':'errors'};
-  for(const id of [...Object.keys(fields),'summary-entities'])$('bundle-'+id).textContent='—';
-  $('bundle-ranking').hidden=true;
-  $('bundle-top-logs').replaceChildren();
-  $('bundle-summary-status').textContent='Calculating totals across the bundle…';
+  const count=bundleData.servers.reduce((n,server)=>n+server.logs.length,0);
+  $('bundle-ranking').hidden=false;
+  $('bundle-top-logs').replaceChildren(el('li','Waiting for the first log with errors.'));
+  $('bundle-summary-status').textContent='Starting bundle overview… You can open a log now.';
+  for(const id of Object.keys(fields))$('bundle-'+id).textContent='0';
+  $('bundle-summary-entities').textContent='0 / 0';
+  const bar=$('overview-progress');
+  bar.hidden=false;bar.max=count || 1;bar.value=0;
   try{
+    while(bundleData?.token===token){
     const response=await fetch('/api/bundle/overview',{method:'POST',headers:{'Content-Type':'application/json','X-Logwatch-Analyze':'1'},body:JSON.stringify({token})});
     if(!response.ok)throw new Error('Could not calculate bundle totals.');
     const result=await response.json();
     if(bundleData?.token!==token)return;
     for(const [id,key] of Object.entries(fields))$('bundle-'+id).textContent=result.stats[key].toLocaleString();
     $('bundle-summary-entities').textContent=`${result.stats.users.toLocaleString()} / ${result.stats.hosts.toLocaleString()}`;
-    $('bundle-ranking').hidden=false;
+    $('bundle-top-logs').replaceChildren();
     for(const log of result.top_logs){
       const item=el('li'), button=el('button');
       button.type='button';
@@ -273,8 +300,17 @@ async function loadBundleOverview(token){
       });
       item.append(button);$('bundle-top-logs').append(item);
     }
-    if(!result.top_logs.length)$('bundle-top-logs').append(el('li','No errors found in the analysed logs.'));
-    $('bundle-summary-status').textContent=`Totals from ${result.included} text logs.${result.omitted ? ' Partial overview: '+result.omitted+' logs could not be analysed.' : ''}`;
+    if(!result.top_logs.length)$('bundle-top-logs').append(el('li',result.done?'No errors found in the analysed logs.':'No errors found in completed logs yet.'));
+    bar.value=result.processed;
+    $('bundle-summary-status').textContent=[
+      result.done?'Overview complete.':'Running totals.',
+      result.processed+' of '+result.count+' logs processed.',
+      result.current?'Indexing '+result.current+'.':'',
+      result.omitted?result.omitted+' logs omitted.':'',result.error || ''
+    ].filter(Boolean).join(' ');
+    if(result.done){bar.hidden=true;break;}
+    await new Promise(resolve=>setTimeout(resolve,1500));
+    }
   }catch(error){
     if(bundleData?.token===token)$('bundle-summary-status').textContent=error.message+' Select a log to inspect it individually.';
   }
@@ -383,13 +419,13 @@ $('bundle-upload').addEventListener('click',async()=>{
   try{
     if(!await prepareReplacement())return;
     $('analysis-files').value='';
-    const response=await fetch('/api/bundle',{method:'POST',headers:{'Content-Type':'application/octet-stream','X-Logwatch-Analyze':'1'},body:file,signal:AbortSignal.timeout(900000)});
+    const response=await uploadWithProgress('/api/bundle',file,'application/octet-stream',$('bundle-status'),$('bundle-progress'),'Upload complete. Inspecting nested archives…');
     if(!response.ok)throw new Error(await response.text());
     bundleData=await response.json();$('bundle-browser').hidden=false;trackInvestigation(bundleData.token,bundleData.expires_at);
     $('bundle-server').replaceChildren(new Option('All servers',''),...bundleData.servers.map(s=>new Option(`${s.name} (${s.logs.length} logs)`,s.name)));
     renderBundleLogs();loadBundleOverview(bundleData.token);$('bundle-status').textContent=`Bundle ready. ${bundleData.skipped} non-text entries skipped. Choose a server, then Analyse log.`;
   }catch(error){$('bundle-status').textContent=`Bundle upload failed: ${error.message.replace(/<[^>]+>/g,' ')}`;}
-  finally{busyChanging=false;updateControls();}
+  finally{$('bundle-progress').hidden=true;busyChanging=false;updateControls();}
 });
 
 let editingIssueId=null;

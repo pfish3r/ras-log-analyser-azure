@@ -20,6 +20,8 @@ class BundleStore:
         self.sessions = {}
         self.indexes = {}
         self.index_locks = {}
+        self.jobs = {}
+        self.progress_lock = threading.Lock()
         self.timer = None
         self.ttl = 3600
         self.sweep_seconds = 15
@@ -139,7 +141,7 @@ class BundleStore:
             token = secrets.token_urlsafe(32)
             self.sessions[token] = (time.monotonic(), temp, records)
             self.indexes[token] = {}
-            self.index_locks[token] = threading.RLock()
+            self.index_locks[token] = {}
             if self.timer is None:
                 self.schedule()
             return token, time.time() + self.ttl
@@ -162,19 +164,22 @@ class BundleStore:
         with self.lock:
             for token, (created, _, _) in list(self.sessions.items()):
                 if time.monotonic() - created >= self.ttl:
-                    guard = self.index_locks[token]
-                    if guard.acquire(blocking=False):
-                        try:
-                            self.clear(token)
-                        finally:
-                            guard.release()
+                    if all(not guard.locked() for guard in self.index_locks[token].values()):
+                        self.clear(token)
 
     def clear(self, token):
         with self.lock:
             if token in self.sessions:
-                with self.index_locks[token]:
+                guards = list(self.index_locks[token].values())
+                for guard in guards:
+                    guard.acquire()
+                try:
                     self.sessions[token][1].cleanup()
+                    self.jobs.pop(token, None)
                     del self.sessions[token], self.indexes[token], self.index_locks[token]
+                finally:
+                    for guard in reversed(guards):
+                        guard.release()
         return {'cleared': True}
 
     def individual(self, payload, analyser):
@@ -201,13 +206,17 @@ class BundleStore:
             if token not in self.sessions:
                 raise ValueError("Investigation expired or cleared. Upload it again.")
             created, temp, records = self.sessions[token]
-            guard = self.index_locks[token]
-            guard.acquire()
+            if not isinstance(log_id, str) or (log_id and not re.fullmatch(r"[0-9]{1,6}", log_id)):
+                raise ValueError("Invalid log selection")
+            guard = self.index_locks[token].setdefault(log_id, threading.Lock())
+            cache = self.indexes[token]
+        guard.acquire()
         try:
             remaining = created + self.ttl - time.monotonic()
             if remaining <= 0:
                 raise ValueError("Investigation expired. Upload it again.")
-            cache = self.indexes[token]
+            if token not in self.sessions:
+                raise ValueError("Investigation expired or cleared.")
             record = None
             if records is not None:
                 record = next((r for r in records if r["id"] == log_id), None)
@@ -227,7 +236,7 @@ class BundleStore:
                     path.unlink(missing_ok=True)
                     raise
             if overview is not None:
-                cache[log_id].add_overview(overview)
+                cache[log_id].add_overview(overview, self.is_controller(record))
                 return
             result = cache[log_id].query(payload, 5000)
             result.update(investigation=token, expires_at=time.time() + created + self.ttl - time.monotonic())
@@ -252,31 +261,64 @@ class BundleStore:
             content = raw.decode('cp1252', errors='replace')
         return content
 
-    def overview(self, token, analyser):
+    @staticmethod
+    def is_controller(record):
+        name = record["name"].replace(chr(92), "/").rsplit("/", 1)[-1]
+        return bool(re.match(r"^controller(?:$|[._ -])", name, re.I))
+
+    def overview_status(self, token, analyser):
         with self.lock:
             self.prune()
             session = self.sessions.get(token)
             if session is None or session[2] is None:
-                raise ValueError("Bundle expired or cleared. Open the bundle again.")
-            records = list(session[2])
+                raise ValueError("Bundle expired or cleared.")
+            job = self.jobs.get(token)
+            if job is None:
+                records = sorted(session[2], key=lambda r: (not self.is_controller(r), r["size"]))
+                job = {"done": False, "processed": 0, "count": len(records), "included": 0,
+                       "omitted": 0, "current": "", "top_logs": [],
+                       "stats": dict.fromkeys(("total","errors","logins","failed","users","hosts"), 0)}
+                self.jobs[token] = job
+                threading.Thread(target=self.run_overview, args=(token, analyser, records, job),
+                                 name="bundle-overview", daemon=True).start()
+            with self.progress_lock:
+                return dict(job)
+
+    def run_overview(self, token, analyser, records, job):
         totals = dict(total=0, logins=0, failed=0, errors=0, users=set(), hosts=set())
-        omitted = 0
         ranked = []
-        for record in records:
-            try:
-                previous_errors = totals["errors"]
-                self.index_query(token, record["id"], {}, analyser, overview=totals)
-                errors = totals["errors"] - previous_errors
-                if errors:
-                    ranked.append({key: record[key] for key in ("id", "name", "server", "path")} | {"errors": errors})
-            except ValueError:
-                with self.lock:
-                    if token not in self.sessions or time.monotonic() >= session[0] + self.ttl:
-                        raise
-                omitted += 1
-        totals.update(users=len(totals["users"]), hosts=len(totals["hosts"]))
-        ranked.sort(key=lambda log: (-log["errors"], log["server"].casefold(), log["path"].casefold()))
-        return dict(stats=totals, included=len(records)-omitted, omitted=omitted, top_logs=ranked[:5])
+        try:
+            for record in records:
+                if token not in self.sessions:
+                    return
+                with self.progress_lock:
+                    job["current"] = record["name"]
+                previous = totals["errors"]
+                try:
+                    self.index_query(token, record["id"], {}, analyser, overview=totals)
+                except ValueError:
+                    included = 0
+                else:
+                    included = 1
+                    errors = totals["errors"] - previous
+                    if errors:
+                        ranked.append({key:record[key] for key in ("id","name","server","path")} | {"errors":errors})
+                        ranked.sort(key=lambda log: (-log["errors"],log["server"].casefold(),log["path"].casefold()))
+                        del ranked[5:]
+                with self.progress_lock:
+                    job["processed"] += 1
+                    job["included"] += included
+                    job["omitted"] += 1-included
+                    job["top_logs"] = list(ranked)
+                    job["stats"] = dict(totals, users=len(totals["users"]), hosts=len(totals["hosts"]))
+        except Exception:
+            import logging
+            logging.exception("Bundle overview failed")
+            with self.progress_lock:
+                job["error"] = "Overview stopped. Totals shown are partial."
+        finally:
+            with self.progress_lock:
+                job.update(done=True,current="")
 
     def analyze(self, payload, analyser):
         return self.index_query(payload.get("token"), payload.get("log_id"), payload, analyser)
@@ -296,7 +338,7 @@ class BundleStore:
         if not isinstance(payload.get('token'), str):
             raise ValueError('Invalid investigation token')
         if path == '/api/bundle/overview':
-            return self.overview(payload['token'], analyser)
+            return self.overview_status(payload['token'], analyser)
         if path in ('/api/bundle/clear', '/api/investigation/clear'):
             return self.clear(payload.get('token'))
         if path == "/api/investigation/query":
