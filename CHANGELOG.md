@@ -1,5 +1,9 @@
 # Feature changelog
 
+## v1.2.1
+
+- The bundle inventory subtly highlights controller, vdiagent, gateway and tsagent filenames in all three themes.
+
 ## v1.2.0 — 13 November 2026
 
 - Individual uploads are parsed once into a temporary SQLite index. Search, file/date/severity filters, pagination and full-log navigation query that index. Opening a bundle log builds its index on demand; selecting the same log again reuses it.

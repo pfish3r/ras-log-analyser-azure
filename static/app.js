@@ -240,6 +240,10 @@ $('admin-form').addEventListener('submit',async event=>{
   }catch(error){$('admin-message').textContent=error.message;$('save-admin').disabled=false;}
 });
 let bundleData=null;
+function isPrimaryRasLog(path){
+  const filename = path.split(/[\\/]/).pop();
+  return /^(?:controller|vdiagent|gateway|tsagent)(?:$|[._ -])/i.test(filename);
+}
 function renderBundleLogs(){
   if(!bundleData)return;
   const server=$('bundle-server').value;
@@ -250,7 +254,14 @@ function renderBundleLogs(){
   for(const title of ['Server','Log / archive path','Size',''])header.append(el('th',title));head.append(header);table.append(head);
   const body=el('tbody');
   for(const log of logs){
-    const row=el('tr');const name=el('td',log.name);name.append(el('small',log.path));
+    const row=el('tr');
+    const name=el('td');
+    const filename=el('span',log.name);
+    if(isPrimaryRasLog(log.name)){
+      filename.className='primary-log-name';
+      filename.title='Commonly reviewed RAS log';
+    }
+    name.append(filename,el('small',log.path));
     const action=el('td');const button=el('button','Analyse log');button.type='button';
     button.addEventListener('click',async()=>{
       if(analysisRunning || busyChanging)return;

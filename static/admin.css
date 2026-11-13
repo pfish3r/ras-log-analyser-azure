@@ -79,3 +79,10 @@
 }
 
 .investigation-controls { display:flex; justify-content:space-between; align-items:center; gap:1rem; flex-wrap:wrap; margin-bottom:1rem; color:var(--muted); }
+
+.primary-log-name {
+  border-inline-start: 2px solid var(--green);
+  padding-inline: 0.45em;
+  background: color-mix(in srgb, var(--green) 8%, transparent);
+  font-weight: 600;
+}
