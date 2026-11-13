@@ -35,7 +35,10 @@ def read_analysis_body(stream, length, mime):
     if not 1 <= length <= ANALYSIS_MAX_REQUEST:
         raise ValueError("Analysis request is empty or too large")
     if mime != LOG_UPLOAD_TYPE:
-        return json.loads(stream.read(length))
+        payload = json.loads(stream.read(length))
+        if isinstance(payload, dict):
+            payload.pop("_raw_upload_bytes", None)
+        return payload
     # Four-byte manifest length, UTF-8 JSON metadata, then original file bytes.
     prefix = stream.read(4)
     header = int.from_bytes(prefix, "big")
@@ -87,11 +90,46 @@ def read_analysis_body(stream, length, mime):
                 break
             chunk = stream.read(min(remaining, 1024**2))
         item["Content"] = "".join(pieces)
+    payload["_raw_upload_bytes"] = total
     return payload
 
 
 def now():
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+class Usage:
+    fields = ("sessions", "upload_sessions", "bundles", "files", "uploaded_bytes", "processed_bytes", "logs")
+
+    def __init__(self, path):
+        self.path = path
+        with self.connection() as db:
+            db.execute("CREATE TABLE IF NOT EXISTS totals (name TEXT PRIMARY KEY, value INTEGER NOT NULL)")
+
+    @contextmanager
+    def connection(self):
+        db = sqlite3.connect(self.path, timeout=15)
+        try:
+            with db:
+                yield db
+        finally:
+            db.close()
+
+    def add(self, **counts):
+        if counts.keys() - set(self.fields):
+            raise ValueError("Unknown usage counter")
+        with self.connection() as db:
+            db.executemany("INSERT INTO totals VALUES (?,?) ON CONFLICT(name) DO UPDATE SET value=value+excluded.value", counts.items())
+
+    def totals(self):
+        with self.connection() as db:
+            return dict.fromkeys(self.fields, 0) | dict(db.execute("SELECT name,value FROM totals"))
+
+    def visit(self, header, length, event):
+        if header != "1" or length != 0 or event not in ("visit","upload"):
+            raise PermissionError("Invalid session counter request")
+        self.add(**{"upload_sessions" if event == "upload" else "sessions": 1})
+        return {"recorded": True}
 
 
 class Store:
@@ -186,6 +224,7 @@ class Analyser:
         self.config_path = Path(config_path) if config_path else None
         self.config_lock = threading.RLock()
         self.store = Store(self.resolve(config.get("Database", "data/issues.sqlite3")))
+        self.usage = Usage(Path(self.store.path).with_suffix(".usage.sqlite3"))
         self.parser = Parser(config)
         self.bundles = BundleStore()
 
@@ -292,7 +331,9 @@ class Analyser:
                 raise ValueError("The decoded log files exceed the 1 GiB analysis limit")
             files.append((name, content))
 
-        return LogIndex(path, [name for name, _ in files], self.parsed_rows(files, event_parser))
+        index = LogIndex(path, [name for name, _ in files], self.parsed_rows(files, event_parser))
+        self.usage.add(processed_bytes=total_text, logs=len(files))
+        return index
 
     def parsed_rows(self, files, event_parser):
         total_lines = 0
@@ -340,7 +381,15 @@ class Analyser:
                        datetime.fromisoformat(sort_time).replace(tzinfo=None).isoformat(timespec="microseconds") if sort_time else None)
 
     def analyze_logs(self, payload):
-        return self.bundles.individual(payload, self)
+        result = self.bundles.individual(payload, self)
+        # Binary manifests are length-validated by read_analysis_body. JSON callers
+        # use the UTF-8 input size, as they send decoded text.
+        uploaded = payload.get("_raw_upload_bytes")
+        if uploaded is None:
+            uploaded = sum(sum(len(f["Content"][i:i+1024**2].encode("utf-8", errors="replace"))
+                               for i in range(0,len(f["Content"]),1024**2)) for f in payload["Files"])
+        self.usage.add(files=len(payload["Files"]), uploaded_bytes=uploaded)
+        return result
 
 def handler_for(analyser):
     class Handler(BaseHTTPRequestHandler):
@@ -370,6 +419,11 @@ def handler_for(analyser):
             try:
                 if parts.path == "/api/known-issues":
                     content, mime = json.dumps(analyser.store.known_issues()).encode(), "application/json"
+                elif parts.path == "/api/usage":
+                    content, mime = json.dumps(analyser.usage.totals()).encode(), "application/json"
+                elif parts.path in ("/stats", "/stats.js"):
+                    name, mime = ("stats.html", "text/html") if parts.path == "/stats" else ("stats.js", "text/javascript")
+                    content = (ROOT / "static" / name).read_bytes()
                 elif parts.path == "/api/settings/defaults":
                     content, mime = json.dumps(analyser.parser_defaults()).encode(), "application/json"
                 elif parts.path == "/api/settings":
@@ -397,6 +451,13 @@ def handler_for(analyser):
                 self.send_error(403)
                 return
             path = urlsplit(self.path).path
+            if path == "/api/usage/session":
+                try:
+                    result = analyser.usage.visit(self.headers.get("X-Logwatch-Analyze"), int(self.headers.get("Content-Length") or 0), self.headers.get("X-Usage-Event"))
+                    self.send_content(200, json.dumps(result).encode())
+                except (PermissionError, ValueError):
+                    self.send_error(403)
+                return
             if path in ("/api/bundle", "/api/bundle/analyze", "/api/bundle/overview", "/api/bundle/clear", "/api/investigation/query", "/api/investigation/clear"):
                 try:
                     result = analyser.bundles.request(path, self.rfile, int(self.headers.get("Content-Length", "0")),

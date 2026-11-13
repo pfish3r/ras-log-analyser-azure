@@ -16,6 +16,12 @@ Use **Theme** in the header to choose **Dark**, **Light** or **Parallels**. The 
 
 The expiry time above the upload controls uses your local clock. **Clear investigation** removes this tab’s server-side index and temporary bundle files, then clears its selected files, filters and results. Starting a different upload replaces the current investigation. Closing the tab leaves server cleanup to the expiry timer. The shared issue library keeps the resolutions and sample messages you explicitly saved. Individual uploads use a temporary SQLite index on the server; it can contain the original message text and parsed fields until cleanup.
 
+## Usage stats
+
+Select **Stats** in the header for installation-wide totals. **Browser sessions** counts visits per tab session; **Sessions with uploads** counts tab sessions that successfully uploaded at least one file or bundle. One person can use multiple tabs. Storage restrictions can prevent a visit from being counted. Opening the Stats page itself does not count as an analyser visit.
+
+Uploaded MB measures accepted individual files and compressed bundles. Processed MB measures successfully indexed decoded log text. A bundle can therefore contribute more processed MB than uploaded MB. Each newly indexed log counts once; filtering or reopening its existing index does not increment the totals. Only numeric counters and their fixed metric names are stored in the usage database. Totals start when the update is deployed. Use **Refresh stats** for the latest values.
+
 ## Upload limits
 
 | Input | Limit per upload |

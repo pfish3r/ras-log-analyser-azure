@@ -1,5 +1,9 @@
 # Feature changelog
 
+## v1.3.0
+
+- Added a Stats page with aggregate browser and upload sessions, uploaded and processed MB, accepted individual files and bundles, and logs indexed. Counters persist alongside the issue database.
+
 ## v1.2.4
 
 - Uploads show transfer progress and a separate analysis indicator. Bundle indexing runs in the background with completed-log progress, running totals and a live top-five error ranking. Bundle login counts use controller logs only.

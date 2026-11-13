@@ -22,6 +22,14 @@ def application_for(analyser):
                 content, mime = json.dumps(result).encode(), "application/json"
             elif method == "GET" and path == "/api/known-issues":
                 content, mime = json.dumps(analyser.store.known_issues()).encode(), "application/json"
+            elif method == "GET" and path == "/api/usage":
+                content, mime = json.dumps(analyser.usage.totals()).encode(), "application/json"
+            elif method == "POST" and path == "/api/usage/session":
+                result = analyser.usage.visit(environ.get("HTTP_X_LOGWATCH_ANALYZE"), int(environ.get("CONTENT_LENGTH") or 0), environ.get("HTTP_X_USAGE_EVENT"))
+                content, mime = json.dumps(result).encode(), "application/json"
+            elif method == "GET" and path in ("/stats", "/stats.js"):
+                name, mime = ("stats.html", "text/html") if path == "/stats" else ("stats.js", "text/javascript")
+                content = (ROOT / "static" / name).read_bytes()
             elif method == "GET" and path == "/api/settings/defaults":
                 content, mime = json.dumps(analyser.parser_defaults()).encode(), "application/json"
             elif method == "GET" and path == "/api/settings":

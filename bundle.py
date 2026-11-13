@@ -329,7 +329,9 @@ class BundleStore:
         if path == '/api/bundle':
             if content_type != 'application/octet-stream':
                 raise ValueError('Binary bundle upload required')
-            return self.upload(stream, length)
+            result = self.upload(stream, length)
+            analyser.usage.add(bundles=1, uploaded_bytes=length)
+            return result
         if not content_type.startswith('application/json') or not 0 < length <= 65536:
             raise ValueError('Invalid bundle request')
         payload = json.loads(stream.read(length))

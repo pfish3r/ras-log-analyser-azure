@@ -15,6 +15,8 @@
 !appsettings.json
 !static/
 !static/parallels-logo.png
+!static/stats.html
+!static/stats.js
 !static/index.html
 !static/app.js
 !static/style.css

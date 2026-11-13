@@ -34,6 +34,22 @@ class InvestigationTests(unittest.TestCase):
     def query(self, token, **params):
         return self.store.index_query(token, "", params, self.app)
 
+    def test_usage_persists_and_cached_queries_do_not_recount(self):
+        self.app.usage.visit("1", 0, "visit")
+        result = self.upload("[E] test")
+        self.query(result["investigation"], Severity="error")
+        self.app.usage.visit("1", 0, "upload")
+        blob = make_zip([("controller.log", "[I] café".encode())])
+        opened = self.store.request("/api/bundle", io.BytesIO(blob), len(blob),
+                                    "application/octet-stream", "1", self.app)
+        for _ in range(2):
+            self.store.analyze({"token":opened["token"],"log_id":"0"}, self.app)
+        expected = dict(sessions=1, upload_sessions=1, bundles=1, files=1, logs=2,
+                        uploaded_bytes=len(blob)+8, processed_bytes=8+len("[I] café".encode()))
+        self.assertEqual(self.app.usage.totals(), expected)
+        restored = Analyser(self.config, self.root, self.config_path)
+        self.assertEqual(restored.usage.totals(), expected)
+
     def test_filters_page_context_and_cleanup_are_isolated(self):
         first = self.upload("[E] failed\n[I] retry\n[E] failed")
         second = self.upload("[W] different case")

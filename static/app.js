@@ -16,6 +16,19 @@ function initializeThemePicker() {
 }
 initializeThemePicker();
 
+async function countSession(upload = false){
+  // The browser retains only a boolean flag; no visitor identifier is sent.
+  const key = upload ? 'ras.usage.upload' : 'ras.usage.visit';
+  try {
+    if (sessionStorage.getItem(key)) return;
+    sessionStorage.setItem(key, '1');
+    const response = await fetch('/api/usage/session', {method:'POST',
+      headers:{'X-Logwatch-Analyze':'1', 'X-Usage-Event':upload?'upload':'visit'}});
+    if (!response.ok) sessionStorage.removeItem(key);
+  } catch { /* Statistics are optional when browser storage is unavailable. */ }
+}
+countSession();
+
 let knownIssues=[];
 const $ = id => document.getElementById(id);
 let analysisData = null, selectedAnalysisIssue = null;
@@ -171,6 +184,7 @@ async function runAnalysis(source,preserve=false){
     const response=source.files ? await uploadWithProgress(url,body,contentType,$('analysis-message'),$('analysis-progress'),'Upload complete. Indexing log entries…') : await fetch(url,{method:'POST',headers:{'Content-Type':contentType,'X-Logwatch-Analyze':'1'},body,signal:AbortSignal.timeout(900000)});
     if(!response.ok)throw new Error((await response.text()).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim());
     const data=await response.json();
+    if(source.files)countSession(true);
     analysisSource={indexed:true,token:data.investigation,log_id:source.log_id};
     trackInvestigation(data.investigation,data.expires_at);appliedAnalysisPeriod=$('analysis-period').value;renderAnalysis(data);
     if(preserve){$('analysis-file').value=previous.file;renderAnalysisGroups();renderAnalysisItems();}
@@ -421,7 +435,7 @@ $('bundle-upload').addEventListener('click',async()=>{
     $('analysis-files').value='';
     const response=await uploadWithProgress('/api/bundle',file,'application/octet-stream',$('bundle-status'),$('bundle-progress'),'Upload complete. Inspecting nested archives…');
     if(!response.ok)throw new Error(await response.text());
-    bundleData=await response.json();$('bundle-browser').hidden=false;trackInvestigation(bundleData.token,bundleData.expires_at);
+    bundleData=await response.json();countSession(true);$('bundle-browser').hidden=false;trackInvestigation(bundleData.token,bundleData.expires_at);
     $('bundle-server').replaceChildren(new Option('All servers',''),...bundleData.servers.map(s=>new Option(`${s.name} (${s.logs.length} logs)`,s.name)));
     renderBundleLogs();loadBundleOverview(bundleData.token);$('bundle-status').textContent=`Bundle ready. ${bundleData.skipped} non-text entries skipped. Choose a server, then Analyse log.`;
   }catch(error){$('bundle-status').textContent=`Bundle upload failed: ${error.message.replace(/<[^>]+>/g,' ')}`;}
