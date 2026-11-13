@@ -23,6 +23,28 @@ class UploadOnlyTests(unittest.TestCase):
         def start(status,headers): response['status']=int(status.split()[0])
         response['body']=b''.join(application_for(self.app)(env,start))
         return response
+    def test_browser_binary_upload_combined_limit_and_encoding(self):
+        from unittest.mock import patch
+        from app import LOG_UPLOAD_TYPE, read_analysis_body
+        parts = [('first.log', b'abc'), ('second.log', 'OK'.encode('utf-16'))]
+        manifest = json.dumps({'Encoding':'auto', 'Files':[
+            {'Name':name,'Size':len(data)} for name,data in parts]}).encode()
+        body = len(manifest).to_bytes(4,'big') + manifest + b''.join(data for _,data in parts)
+        def read(raw):
+            return read_analysis_body(io.BytesIO(raw), len(raw), LOG_UPLOAD_TYPE)
+        with patch('app.ANALYSIS_MAX_TEXT', 9):
+            self.assertEqual([item['Content'] for item in read(body)['Files']], ['abc','OK'])
+            with self.assertRaises(ValueError):read(body[:-1])
+        with patch('app.ANALYSIS_MAX_TEXT', 8), self.assertRaises(ValueError):
+            read(body)
+        base = {'CONTENT_LENGTH':str(len(body)), 'CONTENT_TYPE':LOG_UPLOAD_TYPE,
+                'HTTP_X_LOGWATCH_ANALYZE':'1', 'REQUEST_METHOD':'POST',
+                'PATH_INFO':'/api/analyze', 'wsgi.input':io.BytesIO(body)}
+        statuses = []
+        result = b''.join(application_for(self.app)(base, lambda status, headers: statuses.append(status)))
+        self.assertEqual(statuses, ['200 OK'])
+        self.assertEqual(json.loads(result)['stats']['total'], 2)
+
     def test_removed_capabilities_and_routes(self):
         for name in ('scan','run','sources','read_file','manage_shares','snapshot','stop'):
             self.assertFalse(hasattr(self.app,name),name)

@@ -5,7 +5,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from app import ANALYSIS_MAX_REQUEST, Analyser, ROOT, stamp
+from app import ANALYSIS_MAX_REQUEST, Analyser, ROOT, stamp, LOG_UPLOAD_TYPE, read_analysis_body
 
 
 def application_for(analyser):
@@ -35,14 +35,15 @@ def application_for(analyser):
                     payload = json.loads(environ["wsgi.input"].read(length))
                     content, mime = json.dumps(analyser.store.save_issue(payload) if path == "/api/known-issues" else analyser.update_admin_settings(payload)).encode(), "application/json"
             elif method == "POST" and path == "/api/analyze":
-                if (not environ.get("CONTENT_TYPE", "").lower().startswith("application/json") or
+                mime_type = environ.get("CONTENT_TYPE", "").lower().split(";")[0]
+                if (mime_type not in ("application/json", LOG_UPLOAD_TYPE) or
                         environ.get("HTTP_X_LOGWATCH_ANALYZE") != "1"):
                     status, content = "415 Unsupported Media Type", b"JSON analysis request required"
                 else:
                     length = int(environ.get("CONTENT_LENGTH") or "0")
                     if not 1 <= length <= ANALYSIS_MAX_REQUEST:
                         raise ValueError("Analysis request is empty or too large")
-                    payload = json.loads(environ["wsgi.input"].read(length))
+                    payload = read_analysis_body(environ["wsgi.input"], length, mime_type)
                     content, mime = json.dumps(analyser.analyze_logs(payload)).encode(), "application/json"
             elif method == "GET" and path in ("/", "/app.js", "/style.css", "/admin.css"):
                 name, mime = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),

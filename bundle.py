@@ -11,7 +11,8 @@ import time
 import zipfile
 
 MAX_INSPECTED_ENTRIES = 20_000
-MAX_ENTRY_BYTES = 512 * 1024**2
+MAX_ENTRY_BYTES = 1024**3
+MAX_BUNDLE_BYTES = 1024**3
 
 
 class BundleStore:
@@ -20,8 +21,8 @@ class BundleStore:
         self.lock = threading.RLock()
 
     def upload(self, stream, length):
-        if not 0 < length <= 512 * 1024 * 1024:
-            raise ValueError('Support bundles must be between 1 byte and 512 MiB compressed')
+        if not 0 < length <= MAX_BUNDLE_BYTES:
+            raise ValueError('Support bundles must be between 1 byte and 1 GiB compressed')
         with self.lock:
             self.prune()
             if len(self.sessions) >= 3:

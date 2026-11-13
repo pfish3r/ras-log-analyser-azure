@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import codecs
 import copy
 import json
 import logging
@@ -22,11 +23,71 @@ from version_stamp import stamp
 ROOT = Path(__file__).resolve().parent
 KINDS = {"login", "login_failed", "logout", "connection", "error", "warning", "info"}
 ACTIVITY_KINDS = {"login", "connection", "logout"}
-ANALYSIS_MAX_REQUEST = 768 * 1024 * 1024
-ANALYSIS_MAX_TEXT = 512 * 1024 * 1024
+ANALYSIS_MAX_REQUEST = 1536 * 1024**2
+ANALYSIS_MAX_TEXT = 1024**3
+LOG_UPLOAD_TYPE = "application/vnd.ras.logs"
 ANALYSIS_MAX_FILES = 10
 ANALYSIS_MAX_LINES = 5_000_000
 ANALYSIS_MAX_RESULTS = 5_000
+
+
+def read_analysis_body(stream, length, mime):
+    if not 1 <= length <= ANALYSIS_MAX_REQUEST:
+        raise ValueError("Analysis request is empty or too large")
+    if mime != LOG_UPLOAD_TYPE:
+        return json.loads(stream.read(length))
+    # Four-byte manifest length, UTF-8 JSON metadata, then original file bytes.
+    prefix = stream.read(4)
+    header = int.from_bytes(prefix, "big")
+    if len(prefix) != 4 or not 0 < header <= min(65536, length - 4):
+        raise ValueError("Invalid upload header")
+    payload = json.loads(stream.read(header))
+    if not isinstance(payload, dict):
+        raise ValueError("Invalid upload metadata")
+    files = payload.get("Files")
+    if not isinstance(files, list) or not 1 <= len(files) <= ANALYSIS_MAX_FILES:
+        raise ValueError("Choose between 1 and 10 files")
+    total = 0
+    for item in files:
+        if not isinstance(item, dict) or type(item.get("Size")) is not int or item["Size"] < 0:
+            raise ValueError("Invalid file size")
+        total += item["Size"]
+    if total > ANALYSIS_MAX_TEXT or total + header + 4 != length:
+        raise ValueError("File sizes must match the upload and total at most 1 GiB")
+    encoding = payload.pop("Encoding", "auto")
+    if encoding not in ("auto", "utf-8", "utf-16le", "utf-16be", "windows-1252"):
+        raise ValueError("Invalid file encoding")
+    decoded_bytes = 0
+    for item in files:
+        remaining = item["Size"]
+        first = stream.read(min(remaining, 200))
+        codec = encoding
+        if codec == "auto":
+            if first.startswith(codecs.BOM_UTF16_BE):
+                codec = "utf-16be"
+            elif first.startswith(codecs.BOM_UTF16_LE) or first[1::2].count(0) > 20:
+                codec = "utf-16le"
+            else:
+                codec = "utf-8"
+        decoder = codecs.getincrementaldecoder(codec)(errors="replace")
+        pieces = []
+        chunk = first
+        while True:
+            if remaining and not chunk:
+                raise ValueError("Truncated log upload")
+            remaining -= len(chunk)
+            text = decoder.decode(chunk, final=not remaining)
+            if not pieces:
+                text = text.removeprefix("\ufeff")
+            decoded_bytes += len(text.encode("utf-8"))
+            if decoded_bytes > ANALYSIS_MAX_TEXT:
+                raise ValueError("The decoded log files exceed the 1 GiB analysis limit")
+            pieces.append(text)
+            if not remaining:
+                break
+            chunk = stream.read(min(remaining, 1024**2))
+        item["Content"] = "".join(pieces)
+    return payload
 
 
 def now():
@@ -240,9 +301,10 @@ class Analyser:
             content = uploaded.get("Content")
             if not name or len(name) > 255 or not isinstance(content, str):
                 raise ValueError(f"Uploaded file {number} is invalid")
-            total_text += len(content.encode("utf-8", errors="replace"))
+            total_text += sum(len(content[pos:pos + 1024**2].encode("utf-8", errors="replace"))
+                              for pos in range(0, len(content), 1024**2))
             if total_text > ANALYSIS_MAX_TEXT:
-                raise ValueError("The decoded log files exceed the 512 MiB analysis limit")
+                raise ValueError("The decoded log files exceed the 1 GiB analysis limit")
             files.append((name, content))
 
         stats = {"total": 0, "errors": 0, "warnings": 0, "information": 0,
@@ -413,7 +475,8 @@ def handler_for(analyser):
                 self.send_error(404)
                 return
             required_header = "X-Logwatch-Admin" if path in ("/api/settings", "/api/known-issues") else "X-Logwatch-Analyze"
-            if (not self.headers.get("Content-Type", "").lower().startswith("application/json") or
+            mime = self.headers.get("Content-Type", "").lower().split(";")[0]
+            if (not (mime == "application/json" or (path == "/api/analyze" and mime == LOG_UPLOAD_TYPE)) or
                     self.headers.get(required_header) != "1"):
                 self.send_error(415)
                 return
@@ -422,7 +485,7 @@ def handler_for(analyser):
                 limit = 65536 if path != "/api/analyze" else ANALYSIS_MAX_REQUEST
                 if not 1 <= length <= limit:
                     raise ValueError("Request is empty or too large")
-                payload = json.loads(self.rfile.read(length))
+                payload = read_analysis_body(self.rfile, length, mime) if path == "/api/analyze" else json.loads(self.rfile.read(length))
                 result = analyser.store.save_issue(payload) if path == "/api/known-issues" else analyser.update_admin_settings(payload) if path == "/api/settings" else analyser.analyze_logs(payload)
                 content = json.dumps(result).encode()
                 self.send_content(200, content)

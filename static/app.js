@@ -30,15 +30,13 @@ function errorActions(event){
   }
   return actions;
 }
-function decodeLogFile(buffer,selected){
-  const bytes=new Uint8Array(buffer);let encoding=selected;
-  if(encoding==='auto'){
-    if(bytes[0]===0xff&&bytes[1]===0xfe)encoding='utf-16le';
-    else if(bytes[0]===0xfe&&bytes[1]===0xff)encoding='utf-16be';
-    else if(bytes.length>4&&bytes.slice(0,Math.min(bytes.length,200)).filter((_,i)=>i%2===1&&bytes[i]===0).length>20)encoding='utf-16le';
-    else encoding='utf-8';
-  }
-  return new TextDecoder(encoding,{fatal:false}).decode(bytes).replace(/^\ufeff/,'');
+function logUploadBody(payload, source) {
+  const metadata = {...payload, Encoding: source.encoding,
+    Files: source.files.map(file => ({Name: file.name, Size: file.size}))};
+  const manifest = new TextEncoder().encode(JSON.stringify(metadata));
+  const prefix = new ArrayBuffer(4);
+  new DataView(prefix).setUint32(0, manifest.length);
+  return new Blob([prefix, manifest, ...source.files], {type: 'application/vnd.ras.logs'});
 }
 function renderAnalysisItems(){
   if(!analysisData)return;
@@ -110,11 +108,17 @@ async function runAnalysis(source,preserve=false){
   const previous={file:$('analysis-file').value,search:$('analysis-search').value,severity:$('analysis-severity').value};
   try{
     let payload={...analysisWindow(),Severity:previous.severity,Query:previous.search,FileId:preserve?previous.file:'',Offset:preserve?analysisOffset:0,PageSize:500},url='/api/analyze';
+    let body, contentType;
     if(source.files){
-      payload.Files=[];
-      for(const file of source.files)payload.Files.push({Name:file.name,Content:decodeLogFile(await file.arrayBuffer(),source.encoding)});
-    }else{url='/api/bundle/analyze';Object.assign(payload,{token:source.token,log_id:source.log_id});}
-    const response=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json','X-Logwatch-Analyze':'1'},body:JSON.stringify(payload),signal:AbortSignal.timeout(900000)});
+      body=logUploadBody(payload,source);
+      contentType=body.type;
+    }else{
+      url='/api/bundle/analyze';
+      Object.assign(payload,{token:source.token,log_id:source.log_id});
+      body=JSON.stringify(payload);
+      contentType='application/json';
+    }
+    const response=await fetch(url,{method:'POST',headers:{'Content-Type':contentType,'X-Logwatch-Analyze':'1'},body,signal:AbortSignal.timeout(900000)});
     if(!response.ok)throw new Error((await response.text()).replace(/<[^>]+>/g,' ').replace(/\s+/g,' ').trim());
     const data=await response.json();analysisSource=source;appliedAnalysisPeriod=$('analysis-period').value;renderAnalysis(data);
     if(preserve){$('analysis-file').value=previous.file;renderAnalysisGroups();renderAnalysisItems();}
@@ -128,7 +132,7 @@ async function runAnalysis(source,preserve=false){
 async function analyzeFiles(){
   const files=[...$('analysis-files').files];if(!files.length){$('analysis-message').textContent='Choose at least one log file.';return;}
   if(files.length>10){$('analysis-message').textContent='Choose no more than 10 files.';return;}
-  if(files.reduce((total,file)=>total+file.size,0)>512*1024*1024){$('analysis-message').textContent='Choose files totalling no more than 512 MiB.';return;}
+  if(files.reduce((total,file)=>total+file.size,0)>1024**3){$('analysis-message').textContent='Choose files totalling no more than 1 GiB.';return;}
   await runAnalysis({files,encoding:$('analysis-encoding').value});
 }
 let appliedAnalysisPeriod='all';
@@ -229,7 +233,7 @@ $('bundle-clear').addEventListener('click',async()=>{
 });
 $('bundle-upload').addEventListener('click',async()=>{
   const file=$('bundle-file').files[0];if(!file){$('bundle-status').textContent='Choose a support bundle first.';return;}
-  if(file.size>512*1024*1024){$('bundle-status').textContent='The compressed bundle exceeds 512 MiB.';return;}
+  if(file.size>1024**3){$('bundle-status').textContent='The compressed bundle exceeds 1 GiB.';return;}
   $('bundle-upload').disabled=true;$('bundle-status').textContent='Uploading and inspecting nested archives…';
   try{
     if(bundleData){
