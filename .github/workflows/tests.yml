@@ -30,6 +30,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build and start the Debian-based container
         run: docker compose up -d --build --wait --wait-timeout 120
+      - name: Verify deployed header identifies the checkout
+        run: curl -fsS http://127.0.0.1:8768/ | grep -F "v1.1+${GITHUB_SHA:0:8}"
       - name: Test uploads and persistence across container replacement
         run: python3 container_smoke.py
       - name: Show container logs

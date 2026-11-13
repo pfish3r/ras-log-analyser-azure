@@ -5,7 +5,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 
-from app import ANALYSIS_MAX_REQUEST, Analyser, ROOT
+from app import ANALYSIS_MAX_REQUEST, Analyser, ROOT, stamp
 
 
 def application_for(analyser):
@@ -48,6 +48,8 @@ def application_for(analyser):
                 name, mime = {"/": ("index.html", "text/html"), "/app.js": ("app.js", "text/javascript"),
                               "/style.css": ("style.css", "text/css"), "/admin.css": ("admin.css", "text/css")}[path]
                 content = (ROOT / "static" / name).read_bytes()
+                if name == "index.html" and b"v1.1+dev" in content:
+                    content = stamp(content, ROOT)
             elif method not in ("GET", "POST"):
                 status, content = "405 Method Not Allowed", b"Method not allowed"
             else:

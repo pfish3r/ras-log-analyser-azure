@@ -9,6 +9,8 @@ RUN pip install --no-cache-dir -r requirements-server.txt \
     && chown analyser:analyser /data
 COPY app.py production.py bundle.py import_issues.py container_entrypoint.py container_backup.py appsettings.json ./
 COPY static/ ./static/
+COPY version_stamp.py ./
+RUN --mount=type=bind,source=.,target=/source python version_stamp.py /source /app/static/index.html
 USER 10001:10001
 EXPOSE 8766
 HEALTHCHECK --interval=15s --timeout=5s --start-period=15s --retries=4 \

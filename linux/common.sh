@@ -8,10 +8,11 @@ require_root() { [[ $EUID == 0 ]] || { echo 'Run with sudo.' >&2; exit 1; }; }
 build_release() {
   release="$BASE/releases/$(date -u +%Y%m%dT%H%M%S)-$$"
   install -d -m 755 "$release"
-  for file in app.py production.py bundle.py import_issues.py requirements-server.txt appsettings.json; do
+  for file in version_stamp.py app.py production.py bundle.py import_issues.py requirements-server.txt appsettings.json; do
     install -m 644 "$PACKAGE/$file" "$release/$file"
   done
   cp -R "$PACKAGE/static" "$release/static"
+  python3 "$PACKAGE/version_stamp.py" "$PACKAGE" "$release/static/index.html"
   python3 -m venv "$release/.venv"
   "$release/.venv/bin/pip" install --disable-pip-version-check -r "$release/requirements-server.txt"
   "$release/.venv/bin/python" -m compileall -q "$release"
