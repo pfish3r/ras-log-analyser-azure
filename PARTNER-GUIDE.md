@@ -28,7 +28,7 @@ Uploaded MB measures accepted individual files and compressed bundles. Processed
 | --- | --- |
 | Individual logs | Up to **10 files** totalling **1 GiB combined**. The selected files and their decoded UTF-8 text must each fit within that combined size. |
 | Support bundle (ZIP or TAR.GZ) | **1 GiB compressed** for the uploaded archive. Each file extracted from it can be up to **1 GiB**. ZIP members named `perf.dat` are skipped before extraction. |
-| Nested bundle inspection | **2 GiB cumulative** across the uploaded archive and the contents written during inspection, including nested archives. Up to **20,000 inspected entries** and **8 levels** of nesting. |
+| Nested bundle inspection | **8 GiB cumulative** across the uploaded archive and the contents written during inspection, including nested archives. Up to **20,000 inspected entries** and **8 levels** of nesting. |
 | Text analysis | Up to **5 million processed lines** per analysis and **1 MiB** per line. |
 
 A 90 MB compressed bundle can exceed an inspection limit if it contains a large expanded entry. If the error names a file, select a smaller server archive or split that text log at line boundaries.
@@ -94,7 +94,7 @@ When a message contains a saved phrase and the severity matches, select **Resolu
 | Symptom | What to try |
 | --- | --- |
 | No rows, or a known message is missing | Set **Log date** to **All logs**, **Log file** to **All files**, **Show** to **All log entries**, and clear the search. For a bundle, confirm you selected **Analyse log** for the intended file. |
-| A small compressed bundle fails inspection | Check the exact error. A 90 MB upload can contain a single entry larger than **1 GiB** once expanded. There is also a **20,000-entry** inspection limit across nested archives, a **2 GiB** cumulative inspection budget and a nesting limit. Try the relevant server's debug ZIP on its own. If one text log is too large, split a copy at line boundaries and retain the original for line references. |
+| A small compressed bundle fails inspection | Check the exact error. A 90 MB upload can contain a single entry larger than **1 GiB** once expanded. There is also a **20,000-entry** inspection limit across nested archives, a **8 GiB** cumulative inspection budget and a nesting limit. Try the relevant server's debug ZIP on its own. If one text log is too large, split a copy at line boundaries and retain the original for line references. |
 | Individual uploads exceed a limit | Use at most **10 files** per run. The browser checks combined file size and the server checks decoded text against **1 GiB**. Analysis also limits processed lines to **5 million**, with a **1 MiB** line limit. Narrow the input to the incident period and retry. |
 | The bundle expired or three bundles are already open | Reopen an expired bundle. For a busy instance, clear your finished bundle or try again after another session clears or expires. Three bundle slots are shared across users. |
 | Analysis is slow or reports a failure | The first analysis builds a temporary index. Filters and pages query the index. A broad text search can still take time. Wait for completion and read the status message. A failed analysis can leave the previous results on screen. Recheck the source before using them. |

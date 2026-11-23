@@ -13,6 +13,7 @@ import zipfile
 MAX_INSPECTED_ENTRIES = 20_000
 MAX_ENTRY_BYTES = 1024**3
 MAX_BUNDLE_BYTES = 1024**3
+MAX_INSPECTION_BYTES = 8 * 1024**3
 
 
 class BundleStore:
@@ -66,8 +67,11 @@ class BundleStore:
                             raise ValueError('Truncated bundle entry')
                         remaining -= len(chunk)
                         budget[0] += len(chunk)
-                        if budget[0] > 2 * 1024**3:
-                            raise ValueError('Bundle exceeds the 2 GiB expanded inspection limit')
+                        if budget[0] > MAX_INSPECTION_BYTES:
+                            raise ValueError(
+                                f'Bundle exceeds the {MAX_INSPECTION_BYTES / 1024**3:g} GiB '
+                                'expanded inspection limit. Upload a smaller selection of server archives.'
+                            )
                         output.write(chunk)
                 return target
             def visit(path, display, server, depth):

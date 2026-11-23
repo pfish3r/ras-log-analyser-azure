@@ -1,5 +1,9 @@
 # Feature changelog
 
+## v1.3.4
+
+- Increased the cumulative expanded bundle inspection allowance from 2 GiB to 8 GiB, including nested archives. Compressed uploads and individual entries remain limited to 1 GiB. Larger bundles require additional temporary disk space for extracted logs and analysis indexes.
+
 ## v1.3.0
 
 - Added a Stats page with aggregate browser and upload sessions, uploaded and processed MB, accepted individual files and bundles, and logs indexed. Counters persist alongside the issue database.

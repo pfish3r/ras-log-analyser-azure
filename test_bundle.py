@@ -35,6 +35,21 @@ class BundleTests(unittest.TestCase):
                 self.store.upload(io.BytesIO(raw), len(raw))
         self.assertFalse(self.store.sessions)
 
+    def test_nested_inspection_budget_boundary(self):
+        from unittest.mock import patch
+        log = b'[E] failure\n' * 100
+        inner = make_zip([('controller.log', log)])
+        outer = make_zip([('server_DebugLog.zip', inner)])
+        total = len(outer) + len(inner) + len(log)
+        with patch('bundle.MAX_INSPECTION_BYTES', total - 1):
+            with self.assertRaisesRegex(ValueError, 'expanded inspection limit'):
+                self.store.upload(io.BytesIO(outer), len(outer))
+        self.assertFalse(self.store.sessions)
+        with patch('bundle.MAX_INSPECTION_BYTES', total):
+            result = self.store.upload(io.BytesIO(outer), len(outer))
+        self.assertEqual(result['servers'][0]['logs'][0]['size'], len(log))
+        self.store.clear(result['token'])
+
     def test_oversized_nested_perf_capture_is_counted_but_never_opened(self):
         from unittest.mock import patch
         inner = make_zip([('data/PERF.DAT', b'x' * 20000), ('controller.log', '[E] retained')])
